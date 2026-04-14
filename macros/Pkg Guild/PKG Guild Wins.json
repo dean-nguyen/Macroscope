@@ -1,0 +1,55 @@
+{
+  "name": "PKG Guild Wins",
+  "description": "If pixel matches -> click it -> find Attack button and click it",
+  "trigger": {
+    "type": "hotkey",
+    "keys": [
+      "ctrl",
+      "s"
+    ]
+  },
+  "loop": true,
+  "loop_delay_ms": 1000,
+  "background": true,
+  "target_window": "\u9670\u967d\u5e2bOnmyoji",
+  "target_hwnd": 67628,
+  "actions": [
+    {
+      "type": "find_and_click",
+      "template": "templates/region_1776070526.png",
+      "button": "left",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 600
+        },
+        {
+          "type": "find_and_click",
+          "template": "templates/region_1776007744.png",
+          "button": "left",
+          "threshold": 0.8,
+          "on_found": [],
+          "on_not_found": []
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/region_1776069138.png",
+      "button": "left",
+      "threshold": 0.8,
+      "on_found": [],
+      "on_not_found": []
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/region_1776071144.png",
+      "button": "left",
+      "threshold": 0.8,
+      "on_found": [],
+      "on_not_found": []
+    }
+  ]
+}
