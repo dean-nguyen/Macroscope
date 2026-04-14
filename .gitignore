@@ -210,3 +210,5 @@ __marimo__/
 _debug_*.png
 .claude/
 =4.5
+templates/
+macros/
