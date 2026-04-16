@@ -8,25 +8,13 @@ Schema reference: macros/SCHEMA.md
 import json
 import os
 import shutil
-import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from engine.action_runner import run_action, ActionError
-
-
-def _app_root() -> Path:
-    """Return the application root — works both from source and PyInstaller bundle."""
-    if getattr(sys, "frozen", False):
-        # Use the directory containing the exe, not the temp _MEIPASS dir,
-        # so that saved macros persist across runs.
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
-
-
-MACROS_DIR = _app_root() / "macros"
+from engine.paths import MACROS_DIR
 
 
 def _clean_folder(folder: str) -> str:
@@ -64,7 +52,7 @@ class MacroEngine:
         Each macro dict is tagged with a runtime-only ``_folder`` key holding
         its location relative to MACROS_DIR (posix-style, "" for root).
         """
-        MACROS_DIR.mkdir(exist_ok=True)
+        MACROS_DIR.mkdir(parents=True, exist_ok=True)
         loaded = []
         with self._lock:
             self._macros.clear()

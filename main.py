@@ -13,10 +13,13 @@ except Exception:
         pass
 
 import sys
+from engine.paths import ensure_dirs, migrate_legacy_data
 from gui.app import App
 
 
 def main():
+    ensure_dirs()
+    migrate_legacy_data()
     app = App()
     app.mainloop()
 

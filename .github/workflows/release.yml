@@ -1,0 +1,49 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install nuitka ordered-set zstandard
+
+      - name: Build with Nuitka
+        run: |
+          python -m nuitka --standalone --zig --windows-console-mode=disable `
+            --enable-plugin=tk-inter `
+            --include-package=engine `
+            --include-package=gui `
+            --include-module=win32gui `
+            --include-module=win32api `
+            --include-module=win32con `
+            --include-module=pywintypes `
+            --output-dir=. `
+            --output-filename=WindowMacroBot.exe `
+            --assume-yes-for-downloads `
+            main.py
+
+      - name: Package release zip
+        run: Compress-Archive -Path main.dist\* -DestinationPath WindowMacroBot-${{ github.ref_name }}.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WindowMacroBot-${{ github.ref_name }}.zip
+          generate_release_notes: true

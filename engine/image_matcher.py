@@ -22,18 +22,9 @@ import cv2
 import numpy as np
 from PIL import Image, ImageGrab
 
+from engine.paths import TEMPLATES_DIR, data_root
+
 log = logging.getLogger(__name__)
-
-
-def _app_root() -> Path:
-    """Return the application root — works both from source and PyInstaller bundle."""
-    import sys
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
-
-
-TEMPLATES_DIR = _app_root() / "templates"
 
 
 # ── public API ────────────────────────────────────────────────────────────────
@@ -67,7 +58,7 @@ def find_template(
     """
     path = Path(template_path)
     if not path.is_absolute():
-        path = _app_root() / path
+        path = data_root() / path
     if not path.exists():
         raise FileNotFoundError(f"Template not found: {path}")
 
@@ -115,7 +106,7 @@ def find_all_templates(
     """
     path = Path(template_path)
     if not path.is_absolute():
-        path = _app_root() / path
+        path = data_root() / path
     if not path.exists():
         raise FileNotFoundError(f"Template not found: {path}")
 

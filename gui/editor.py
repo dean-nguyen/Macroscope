@@ -12,6 +12,7 @@ from pathlib import Path
 from tkinter import messagebox, filedialog
 from typing import Callable, Dict, List, Optional
 
+from engine.paths import TEMPLATES_DIR
 from gui import theme as T
 from gui.widgets import Button, SectionLabel
 from gui.picker import PixelPicker
@@ -693,13 +694,11 @@ class MacroEditor(tk.Toplevel):
                           font=T.FONT, width=24).pack(side=tk.LEFT)
 
                 def _browse(v=var):
-                    root = Path(__file__).resolve().parent.parent
-                    tmpl = root / "templates"
-                    tmpl.mkdir(exist_ok=True)
+                    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
                     f = filedialog.askopenfilename(
                         parent=self,
                         title="Select template image",
-                        initialdir=str(tmpl),
+                        initialdir=str(TEMPLATES_DIR),
                         filetypes=[("PNG", "*.png"), ("Images", "*.png *.jpg *.bmp"), ("All", "*.*")],
                     )
                     if f:
@@ -936,11 +935,9 @@ class MacroEditor(tk.Toplevel):
         self.deiconify()
         if img is None:
             return
-        root = Path(__file__).resolve().parent.parent
-        tmpl = root / "templates"
-        tmpl.mkdir(exist_ok=True)
+        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
         name = f"region_{int(time.time())}.png"
-        img.save(str(tmpl / name))
+        img.save(str(TEMPLATES_DIR / name))
         rel = f"templates/{name}"
 
         self._sync_rows()
@@ -1299,13 +1296,11 @@ class SubActionsDialog(tk.Toplevel):
                          font=T.FONT, width=20).pack(side=tk.LEFT)
 
                 def _browse(v=var):
-                    root = Path(__file__).resolve().parent.parent
-                    tmpl = root / "templates"
-                    tmpl.mkdir(exist_ok=True)
+                    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
                     f = filedialog.askopenfilename(
                         parent=self,
                         title="Select template image",
-                        initialdir=str(tmpl),
+                        initialdir=str(TEMPLATES_DIR),
                         filetypes=[("PNG", "*.png"), ("Images", "*.png *.jpg *.bmp"), ("All", "*.*")],
                     )
                     if f:

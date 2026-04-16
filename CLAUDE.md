@@ -22,12 +22,14 @@ No build step, no test runner, no linter configured. The project is pure Python.
 ```
 main.py                  Entry point — creates and starts App (tkinter mainloop)
 engine/
+  paths.py               Centralized path resolution — user data in %APPDATA%, legacy migration
   macro_engine.py        Loads/saves/validates macros; runs them in background threads
   action_runner.py       Dispatches individual action dicts to pyautogui/keyboard/Win32 calls
   pixel_detector.py      Screenshot-based pixel color read, match, wait
   image_matcher.py       OpenCV template matching — find_template / find_all_templates
   rect_detector.py       OpenCV contour-based rectangle/card detection
   background_input.py    Win32 PostMessage API — send mouse/keyboard to a window without moving the real cursor
+  wgc_capture.py         Windows.Graphics.Capture — GPU-aware window capture for DX games/emulators
   hotkey_listener.py     Wraps the `keyboard` library for global hotkey registration
 gui/
   app.py                 Main tkinter window — macro list, log panel, header controls
@@ -35,13 +37,22 @@ gui/
   picker.py              Full-screen transparent overlay for picking pixel coordinates
   region_capture.py      Full-screen overlay for drag-to-select screen region capture
   arranger.py            Window Arranger dialog — select windows and tile them in a grid
+  inspector.py           Debug tool — live capture previews and image-match diagnostics
   widgets.py             Reusable themed widgets (Button, Label, ScrolledText, ...)
   theme.py               Color/font constants for the dark UI theme
-macros/
-  SCHEMA.md              Full macro JSON schema reference
-  *.json                 Individual macro files (loaded at startup)
-templates/               Template images for image matching actions (PNG files)
 ```
+
+### User data paths
+
+User-created data (macros, template images) is stored under `%APPDATA%/WindowMacroBotData/`:
+
+```
+%APPDATA%/WindowMacroBotData/
+├── macros/          Macro JSON files
+└── templates/       Template images for image matching
+```
+
+`engine/paths.py` is the single source of truth for all path resolution. On first launch of a packaged `.exe`, `migrate_legacy_data()` copies any existing exe-relative `macros/` and `templates/` into the APPDATA location. When running from source, `data_root()` falls back to the project directory if APPDATA is unset.
 
 ### Data flow
 
