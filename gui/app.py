@@ -22,9 +22,12 @@ from typing import Optional
 
 from engine.macro_engine import MacroEngine
 from engine.hotkey_listener import HotkeyListener
+from engine.entitlements import LockedFeatureError
+from engine.licensing import LicenseManager
 from gui import theme as T
 from gui.widgets import Button, IconButton, Label, Frame, SectionLabel, Badge, ScrolledText, recolor
 from gui.editor import MacroEditor
+from gui.license_dialog import LicenseDialog
 
 
 class App(tk.Tk):
@@ -36,7 +39,15 @@ class App(tk.Tk):
         self.configure(bg=T.BG)
         self.resizable(True, True)
 
-        self._engine  = MacroEngine(log_fn=self._log)
+        # Licensing must exist before the engine so the engine can enforce
+        # the user's tier on every run/save. on_change marshals to the main
+        # thread so a background re-validation downgrade refreshes the badge.
+        self._license = LicenseManager(
+            log_fn=self._log,
+            on_change=lambda: self.after(0, self._on_license_change),
+        )
+
+        self._engine  = MacroEngine(log_fn=self._log, tier_fn=self._license.tier)
         self._hotkeys = HotkeyListener(log_fn=self._log)
         self._stop_hotkey = ["ctrl", "F12"]
         self._toggle_btns: dict = {}
@@ -46,6 +57,8 @@ class App(tk.Tk):
         self._build_ui()
         self._reload_macros()
         self._register_stop_hotkey()
+        # Start licensing only after the UI exists so on_change can refresh it.
+        self._license.start()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ── UI construction ───────────────────────────────────────────────────────
@@ -80,6 +93,15 @@ class App(tk.Tk):
         # Right: minimal action row
         right = tk.Frame(inner, bg=T.BG2)
         right.pack(side=tk.RIGHT, pady=10)
+
+        # Plan badge (FREE / PRO) — click to open the license dialog.
+        self._plan_badge = tk.Label(
+            right, text="", font=T.FONT_SMALL, padx=8, pady=3,
+            cursor="hand2",
+        )
+        self._plan_badge.pack(side=tk.LEFT, padx=(0, 8))
+        self._plan_badge.bind("<Button-1>", lambda _: self._open_license())
+        self._refresh_plan_badge()
 
         Button(right, "New Macro",  command=self._new_macro).pack(side=tk.LEFT, padx=3)
         Button(right, "New Folder", command=self._new_folder, variant="ghost").pack(side=tk.LEFT, padx=3)
@@ -602,7 +624,11 @@ class App(tk.Tk):
                 macro["_folder"] = getattr(self, "_pending_new_folder", "") or ""
         self._pending_new_folder = ""
 
-        path = self._engine.save_macro(macro)
+        try:
+            path = self._engine.save_macro(macro)
+        except LockedFeatureError as exc:
+            self._show_upgrade(exc.message)
+            return
         self._log(f"Saved '{macro['name']}'")
 
         trigger = macro.get("trigger", {})
@@ -643,6 +669,10 @@ class App(tk.Tk):
             self._status(f"Stopped '{name}'")
             self._update_toggle_btn(name, running=False)
         else:
+            reason = self._engine.locked_reason(name)
+            if reason:
+                self._show_upgrade(reason)
+                return
             self._log(f"Running '{name}'", tag="ok")
             self._status(f"Running '{name}'")
             self._engine.run(
@@ -674,6 +704,32 @@ class App(tk.Tk):
             self._update_toggle_btn(name, running=False)
         self._log("All macros stopped", tag="warn")
         self._status("Stopped")
+
+    # ── licensing ─────────────────────────────────────────────────────────────
+
+    def _refresh_plan_badge(self):
+        """Update the header plan chip to reflect the current tier."""
+        if not hasattr(self, "_plan_badge") or not self._plan_badge.winfo_exists():
+            return
+        if self._license.is_pro():
+            self._plan_badge.configure(text="PRO", bg=T.SUCCESS, fg="#06281a")
+        else:
+            self._plan_badge.configure(text="FREE · Upgrade", bg=T.BG3, fg=T.WARNING)
+
+    def _open_license(self, reason: str = None):
+        LicenseDialog(self, self._license,
+                      on_change=self._on_license_change, reason=reason)
+
+    def _on_license_change(self):
+        self._refresh_plan_badge()
+        self._rebuild_list()
+        tier = "Pro" if self._license.is_pro() else "Free"
+        self._status(f"Plan: {tier}")
+
+    def _show_upgrade(self, reason: str):
+        """Open the upgrade dialog with the reason a feature was blocked."""
+        self._log(reason, tag="warn")
+        self._open_license(reason=reason)
 
     # ── global stop hotkey ────────────────────────────────────────────────────
 
@@ -842,4 +898,5 @@ class App(tk.Tk):
     def _on_close(self):
         self._engine.stop_all()
         self._hotkeys.unregister_all()
+        self._license.stop()
         self.destroy()

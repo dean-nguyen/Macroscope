@@ -48,6 +48,10 @@ def data_root() -> Path:
 MACROS_DIR: Path = data_root() / "macros"
 TEMPLATES_DIR: Path = data_root() / "templates"
 
+# License activation cache (HMAC-signed). Lives alongside user data so it
+# survives app updates but is per-machine.
+LICENSE_FILE: Path = data_root() / "license.json"
+
 
 def ensure_dirs() -> None:
     """Create user data directories if they don't exist yet."""

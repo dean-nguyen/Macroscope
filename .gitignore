@@ -218,3 +218,7 @@ _debug_*.png
 =4.5
 templates/
 macros/
+
+# Commercial: real build-time secrets (KeyAuth creds, HMAC secret).
+# The .example.py is committed; the real file never is.
+engine/_build_config.py

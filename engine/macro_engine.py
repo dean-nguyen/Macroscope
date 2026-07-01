@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from engine.action_runner import run_action, ActionError
+from engine.entitlements import (
+    LockedFeatureError,
+    Tier,
+    check_can_create,
+    check_macro_runnable,
+    check_parallel,
+    for_tier,
+)
 from engine.paths import MACROS_DIR
 
 
@@ -37,12 +45,32 @@ def _folder_of(path: Path) -> str:
 
 
 class MacroEngine:
-    def __init__(self, log_fn: Optional[Callable[[str], None]] = None):
+    def __init__(
+        self,
+        log_fn: Optional[Callable[[str], None]] = None,
+        tier_fn: Optional[Callable[[], Tier]] = None,
+    ):
         self._macros: Dict[str, Dict] = {}          # name → macro dict
         self._running: Dict[str, threading.Thread] = {}
         self._stop_flags: Dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._log = log_fn or print
+        # Returns the user's current licensing tier. Defaults to PRO so the
+        # engine is unrestricted when run from source / in tests; the packaged
+        # GUI passes the real LicenseManager.tier so the .exe enforces gating.
+        self._tier_fn = tier_fn or (lambda: Tier.PRO)
+
+    # ── licensing / entitlements ────────────────────────────────────────────────
+
+    def _entitlements(self):
+        return for_tier(self._tier_fn())
+
+    def locked_reason(self, name: str) -> Optional[str]:
+        """Return an upgrade message if *name* can't run on the current tier."""
+        macro = self.get_macro(name)
+        if macro is None:
+            return None
+        return check_macro_runnable(macro, self._entitlements())
 
     # ── loading ───────────────────────────────────────────────────────────────
 
@@ -92,6 +120,16 @@ class MacroEngine:
         Moves the file if the macro already exists in a different folder.
         """
         _validate(macro)
+
+        # Enforce the free-tier macro count, but only for genuinely new macros
+        # (editing/saving an existing one is always allowed). The check is done
+        # under the lock so two concurrent saves can't both slip past the limit.
+        with self._lock:
+            if macro["name"] not in self._macros:
+                locked = check_can_create(len(self._macros), self._entitlements())
+                if locked:
+                    raise LockedFeatureError(locked, feature="max_macros")
+
         if folder is None:
             folder = macro.get("_folder", "")
         folder = _clean_folder(folder)
@@ -264,6 +302,11 @@ class MacroEngine:
             self._log(f"[run] macro '{name}' already running")
             return False
 
+        locked = check_macro_runnable(macro, self._entitlements())
+        if locked:
+            self._log(f"[locked] {name}: {locked}")
+            return False
+
         stop_event = threading.Event()
         with self._lock:
             self._stop_flags[name] = stop_event
@@ -317,6 +360,14 @@ class MacroEngine:
                 on_all_done()
             return []
 
+        # Parallel (multi-account) runs are a Pro feature. On the free tier,
+        # degrade gracefully to sequential rather than blocking entirely.
+        if parallel:
+            locked = check_parallel(self._entitlements())
+            if locked:
+                self._log(f"[locked] {locked} Running sequentially instead.")
+                parallel = False
+
         if parallel:
             # Fire-and-forget: each macro is its own thread.
             remaining = {"n": len(names)}
@@ -347,6 +398,13 @@ class MacroEngine:
                     if macro is None:
                         continue
                     if self.is_running(name):
+                        continue
+
+                    locked = check_macro_runnable(macro, self._entitlements())
+                    if locked:
+                        self._log(f"[locked] {name}: {locked}")
+                        if on_each_done:
+                            on_each_done(name)
                         continue
 
                     per_stop = threading.Event()
