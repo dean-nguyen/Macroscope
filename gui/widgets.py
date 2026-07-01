@@ -113,6 +113,53 @@ class SectionLabel(tk.Label):
         )
 
 
+def prompt_text(
+    parent,
+    title: str,
+    label: str,
+    initial: str = "",
+    ok_text: str = "OK",
+) -> str | None:
+    """Modal themed text prompt. Returns the entered string, or None if cancelled.
+
+    Shared by the editor, template manager, and anywhere else that needs a
+    quick single-field input, so the dialog styling stays consistent.
+    """
+    dlg = tk.Toplevel(parent)
+    dlg.title(title)
+    dlg.configure(bg=T.BG)
+    T.center_on_parent(dlg, parent, 340, 155)
+    dlg.resizable(False, False)
+    dlg.transient(parent)
+    dlg.grab_set()
+
+    Label(dlg, text=label).pack(pady=(18, 6), padx=20, anchor="w")
+    entry = tk.Entry(
+        dlg, bg=T.BG3, fg=T.FG, insertbackground=T.FG, font=T.FONT,
+        relief=tk.FLAT, highlightthickness=1,
+        highlightcolor=T.ACCENT, highlightbackground=T.BORDER,
+    )
+    entry.insert(0, initial)
+    entry.pack(padx=20, fill=tk.X, ipady=5)
+    entry.focus_set()
+    entry.select_range(0, tk.END)
+
+    result = {"value": None}
+
+    def _ok():
+        result["value"] = entry.get().strip()
+        dlg.destroy()
+
+    row = Frame(dlg)
+    row.pack(pady=12)
+    Button(row, ok_text, command=_ok, variant="success").pack(side=tk.LEFT, padx=4)
+    Button(row, "Cancel", command=dlg.destroy, variant="ghost").pack(side=tk.LEFT, padx=4)
+    dlg.bind("<Return>", lambda _: _ok())
+    dlg.bind("<Escape>", lambda _: dlg.destroy())
+    parent.wait_window(dlg)
+    return result["value"] or None
+
+
 class ScrolledText(tk.Frame):
     """Text widget with vertical (and optional horizontal) scrollbar."""
 

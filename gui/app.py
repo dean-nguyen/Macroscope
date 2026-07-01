@@ -146,9 +146,14 @@ class App(tk.Tk):
         )
         self._count_badge.pack(side=tk.LEFT, padx=6)
 
-        # Extra buttons (Arrange, Reload) — tucked right
+        # Extra buttons (Images, Arrange, Reload) — tucked right
         btn_row = tk.Frame(ph, bg=T.BG2)
         btn_row.pack(side=tk.RIGHT)
+        tk.Label(btn_row, text="Images", font=T.FONT_SMALL, bg=T.BG2,
+                 fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
+        btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_templates())
+        btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
+        btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
         tk.Label(btn_row, text="Arrange", font=T.FONT_SMALL, bg=T.BG2,
                  fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
         btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_arranger())
@@ -611,6 +616,10 @@ class App(tk.Tk):
     def _open_arranger(self):
         from gui.arranger import WindowArranger
         WindowArranger(self)
+
+    def _open_templates(self):
+        from gui.template_manager import TemplateManager
+        TemplateManager(self, self._engine, on_change=self._rebuild_list)
 
     def _edit_macro(self, macro: dict):
         MacroEditor(self, save_callback=self._save_macro, macro=macro)

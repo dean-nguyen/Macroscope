@@ -13,8 +13,9 @@ from tkinter import messagebox, filedialog
 from typing import Callable, Dict, List, Optional
 
 from engine.paths import TEMPLATES_DIR
+from engine import template_store as ts
 from gui import theme as T
-from gui.widgets import Button, SectionLabel
+from gui.widgets import Button, SectionLabel, prompt_text
 from gui.picker import PixelPicker
 
 
@@ -936,7 +937,19 @@ class MacroEditor(tk.Toplevel):
         if img is None:
             return
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-        name = f"region_{int(time.time())}.png"
+
+        # Ask for a meaningful name so templates aren't anonymous timestamps.
+        # Blank/cancel falls back to a timestamp (never blocks the capture).
+        entered = prompt_text(
+            self, "Name this template",
+            "Template name (blank = auto):",
+            ok_text="Save",
+        )
+        if entered:
+            name = ts.unique_name(f"{ts.sanitize_stem(entered)}.png")
+        else:
+            name = f"region_{int(time.time())}.png"
+
         img.save(str(TEMPLATES_DIR / name))
         rel = f"templates/{name}"
 
