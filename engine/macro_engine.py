@@ -468,6 +468,7 @@ class MacroEngine:
             # Rebuild ctx each iteration so the window offset stays current
             # if the window is moved, but the hwnd is pinned from above.
             ctx = self._build_ctx(macro)
+            ctx["request_stop"] = stop.set   # lets a `stop` action end the loop
 
             def run_actions(actions):
                 for action in actions:
@@ -613,6 +614,7 @@ _REQUIRED_ACTION_FIELDS: Dict[str, List[str]] = {
     "key":            ["keys"],
     "type":           ["text"],
     "wait":           ["ms"],
+    "stop":           [],
     "pixel_wait":     ["x", "y", "color"],
     "pixel_check":    ["x", "y", "color"],
     "find_and_click": ["template"],

@@ -1,0 +1,26 @@
+{
+  "name": "Onmyoji - Soul Farming",
+  "description": "Auto-repeat a Soul (Yuhun/御魂) dungeon; stops when AP runs out. STARTER: open the soul dungeon's battle screen first, then capture the onmyoji_*.png templates (see CAPTURE-GUIDE.md).",
+  "background": true,
+  "target_window": "Onmyoji",
+  "loop": true,
+  "loop_delay_ms": 1000,
+  "actions": [
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_out_of_stamina.png",
+      "threshold": 0.85,
+      "on_found": [ { "type": "stop" } ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_challenge_again.png",
+      "threshold": 0.85,
+      "on_not_found": [
+        { "type": "find_and_click", "template": "templates/onmyoji_battle_ready.png", "threshold": 0.85 }
+      ]
+    },
+    { "type": "image_wait", "template": "templates/onmyoji_victory.png", "timeout_ms": 120000, "poll_ms": 1000 },
+    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80 }
+  ]
+}

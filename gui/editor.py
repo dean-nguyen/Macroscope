@@ -34,6 +34,7 @@ def _bind_wheel_recursive(widget, handler):
 
 _F: Dict[str, list] = {
     "wait":          [("ms",              "int",                   500)],
+    "stop":          [],
     "click":         [("x",               "int",                     0),
                       ("y",               "int",                     0),
                       ("button",          "choice:left,right,middle", "left"),

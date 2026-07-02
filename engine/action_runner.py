@@ -51,6 +51,7 @@ def run_action(
         "key":          lambda a: _key(a, ctx),
         "type":         lambda a: _type(a, ctx),
         "wait":         lambda a: _wait(a),
+        "stop":         lambda a: _stop(a, ctx),
         "pixel_wait":     lambda a: _pixel_wait(a, ctx),
         "pixel_check":    lambda a: _pixel_check(a, run_actions_fn, ctx),
         "find_and_click": lambda a: _find_and_click(a, run_actions_fn, ctx),
@@ -229,6 +230,18 @@ def _type(a: Dict, ctx) -> None:
 
 def _wait(a: Dict) -> None:
     time.sleep(a.get("ms", 0) / 1000.0)
+
+
+def _stop(a: Dict, ctx) -> None:
+    """Request the running macro to stop (ends its loop).
+
+    Placed in a branch (e.g. on_found of an "out of tickets" image_check) so a
+    limited-attempt daily halts itself once exhausted instead of looping.
+    """
+    _log(ctx, "[stop] macro stop requested")
+    fn = ctx.get("request_stop") if ctx else None
+    if callable(fn):
+        fn()
 
 
 def _pixel_wait(a: Dict, ctx=None) -> None:

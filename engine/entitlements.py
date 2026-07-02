@@ -59,6 +59,7 @@ BASIC_ACTIONS = frozenset(
         "key",
         "type",
         "wait",
+        "stop",
     }
 )
 

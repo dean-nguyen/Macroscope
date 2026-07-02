@@ -1,0 +1,16 @@
+{
+  "name": "Onmyoji - Daily Sign-in & Mail",
+  "description": "One-shot: claim the daily sign-in and collect all mail. STARTER: capture the sign-in / mail buttons (see CAPTURE-GUIDE.md). Runs once (no loop).",
+  "background": true,
+  "target_window": "Onmyoji",
+  "loop": false,
+  "actions": [
+    { "type": "find_and_click", "template": "templates/onmyoji_signin_claim.png", "threshold": 0.85, "on_not_found": [] },
+    { "type": "wait", "ms": 800 },
+    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80, "on_not_found": [] },
+    { "type": "wait", "ms": 800 },
+    { "type": "find_and_click", "template": "templates/onmyoji_mail_claim.png", "threshold": 0.85, "on_not_found": [] },
+    { "type": "wait", "ms": 800 },
+    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80, "on_not_found": [] }
+  ]
+}

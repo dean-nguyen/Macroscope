@@ -1,0 +1,26 @@
+{
+  "name": "Onmyoji - Realm Raid",
+  "description": "Auto-attack Realm Raid (结界突破) targets, refreshing the list when needed; stops when attempts run out. STARTER: open the Realm Raid target list first (see CAPTURE-GUIDE.md).",
+  "background": true,
+  "target_window": "Onmyoji",
+  "loop": true,
+  "loop_delay_ms": 1000,
+  "actions": [
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_no_attempts.png",
+      "threshold": 0.85,
+      "on_found": [ { "type": "stop" } ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_realmraid_attack.png",
+      "threshold": 0.85,
+      "on_not_found": [
+        { "type": "find_and_click", "template": "templates/onmyoji_realmraid_refresh.png", "threshold": 0.85 }
+      ]
+    },
+    { "type": "image_wait", "template": "templates/onmyoji_victory.png", "timeout_ms": 120000, "poll_ms": 1000 },
+    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80 }
+  ]
+}
