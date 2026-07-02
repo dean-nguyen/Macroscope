@@ -34,7 +34,7 @@ def _resolve(attr: str, env: str, default: str) -> str:
 
 
 # ── Identity ────────────────────────────────────────────────────────────────
-PRODUCT_NAME: str = _resolve("PRODUCT_NAME", "WMB_PRODUCT_NAME", "Window Macro Bot")
+PRODUCT_NAME: str = _resolve("PRODUCT_NAME", "WMB_PRODUCT_NAME", "YuhunBot")
 VERSION: str = _resolve("VERSION", "WMB_VERSION", "1.0.0")
 
 # Where the "Get Pro" / "Buy" buttons send the user. Use your Sellix / SellApp /

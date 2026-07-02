@@ -6,9 +6,9 @@ Copy-paste templates. Replace `{{PLACEHOLDERS}}`. Keep the hype honest.
 
 ## 1. Launch announcement (@everyone)
 
-> # ⚡ {{PRODUCT}} is LIVE
+> # ⚡ YuhunBot is LIVE
 >
-> Farm **{{GAME}}** completely hands-free. 🌙
+> Farm **Onmyoji** completely hands-free. 🌙
 >
 > **What it does**
 > 🖱️ Background mode — runs while you use your PC (no cursor stealing)
@@ -17,7 +17,7 @@ Copy-paste templates. Replace `{{PLACEHOLDERS}}`. Keep the hype honest.
 > 🔁 Loops & conditional logic
 >
 > **Try it free** → {{DOWNLOAD_URL}}
-> **Go Pro** ({{PRICE_MONTHLY}}/mo or {{PRICE_LIFETIME}} lifetime) → {{PURCHASE_URL}}
+> **Go Pro** ($6/mo or $35 lifetime) → {{PURCHASE_URL}}
 >
 > 📺 See it in action: {{DEMO_VIDEO_URL}}
 > 💬 Questions? Drop them in <#{{SUPPORT_CHANNEL_ID}}>
@@ -28,13 +28,13 @@ Copy-paste templates. Replace `{{PLACEHOLDERS}}`. Keep the hype honest.
 
 ## 2. Short social blurb (X / Reddit title)
 
-Just launched {{PRODUCT}} — an AFK auto-farm bot for {{GAME}}. Background mode, image detection, multi-account. Free tier to try it. {{DOWNLOAD_URL}}
+Just launched YuhunBot — an AFK auto-farm bot for Onmyoji. Background mode, image detection, multi-account. Free tier to try it. {{DOWNLOAD_URL}}
 
 ---
 
 ## 3. Pinned "Start here" message
 
-> **👋 Welcome to {{PRODUCT}}**
+> **👋 Welcome to YuhunBot**
 >
 > 1️⃣ Download: {{DOWNLOAD_URL}}
 > 2️⃣ Read setup: <#{{GUIDE_CHANNEL_ID}}>
