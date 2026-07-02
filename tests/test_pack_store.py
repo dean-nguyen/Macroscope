@@ -129,3 +129,47 @@ def test_safe_folder_sanitizes():
     assert ps._safe_folder("Summoners War") == "Summoners War"
     assert ps._safe_folder("../evil/Onmyoji") == "Onmyoji"
     assert ps._safe_folder("") == "Imported"
+
+
+# ── template specs (guided capture) ───────────────────────────────────────────
+
+
+def test_load_template_spec(tmp_path):
+    spec_file = tmp_path / "t.spec.json"
+    spec_file.write_text(json.dumps({
+        "name": "X",
+        "templates": [
+            {"name": "a.png", "description": "the A button"},
+            {"name": "b.png"},              # missing description -> ""
+            {"description": "no name"},     # dropped
+        ],
+    }), encoding="utf-8")
+
+    spec = ps.load_template_spec(spec_file)
+    assert [s["name"] for s in spec] == ["a.png", "b.png"]
+    assert spec[0]["description"] == "the A button"
+    assert spec[1]["description"] == ""
+
+
+def test_spec_missing_reports_uncaptured(tmp_path):
+    tdir = tmp_path / "templates"
+    tdir.mkdir()
+    (tdir / "a.png").write_bytes(b"img")
+    spec = [{"name": "a.png", "description": ""}, {"name": "b.png", "description": ""}]
+    assert ps.spec_missing(spec, tdir) == ["b.png"]
+
+
+def test_shipped_onmyoji_spec_matches_pack_templates():
+    """The Onmyoji spec must cover exactly the templates its macros reference."""
+    import glob
+    from pathlib import Path as _P
+
+    spec = ps.load_template_spec("packs/onmyoji/templates.spec.json")
+    spec_names = {s["name"] for s in spec}
+
+    referenced = set()
+    for f in glob.glob("packs/onmyoji/*.macro.json"):
+        macro = json.loads(_P(f).read_text(encoding="utf-8"))
+        referenced.update(ps.referenced_templates([macro]))
+
+    assert referenced == spec_names

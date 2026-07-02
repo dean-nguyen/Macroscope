@@ -12,11 +12,12 @@ macros, so the view always reflects what's actually on disk.
 import os
 import subprocess
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 from typing import Callable, List, Optional
 
 from engine import template_store as ts
-from engine.paths import TEMPLATES_DIR
+from engine import pack_store
+from engine.paths import TEMPLATES_DIR, app_root
 from gui import theme as T
 from gui.widgets import Button, SectionLabel, prompt_text
 
@@ -59,11 +60,35 @@ class TemplateManager(tk.Toplevel):
                                bg=T.ACCENT, fg="#fff", padx=6)
         self._count.pack(side=tk.LEFT, padx=6)
 
+        Button(inner, "Guided capture…", command=self._guided_capture,
+               variant="primary").pack(side=tk.RIGHT, padx=(6, 0))
         Button(inner, "Delete unused", command=self._delete_unused,
                variant="ghost").pack(side=tk.RIGHT, padx=(6, 0))
         Button(inner, "Refresh", command=self._refresh,
                variant="ghost").pack(side=tk.RIGHT)
         tk.Frame(hdr, bg=T.SEP, height=1).pack(fill=tk.X, side=tk.BOTTOM)
+
+    def _guided_capture(self):
+        """Pick a pack's template spec and step-capture every image it needs."""
+        path = filedialog.askopenfilename(
+            parent=self, title="Choose a pack template spec",
+            initialdir=str(app_root() / "packs"),
+            filetypes=[("Template spec", "*.spec.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            spec = pack_store.load_template_spec(path)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Guided capture",
+                                 f"Could not read spec:\n{exc}", parent=self)
+            return
+        if not spec:
+            messagebox.showinfo("Guided capture",
+                                "That spec lists no templates.", parent=self)
+            return
+        from gui.capture_wizard import CaptureWizard
+        CaptureWizard(self, spec, capture_root=self.master, on_done=self._refresh)
 
     def _build_list(self):
         canvas = tk.Canvas(self, bg=T.BG, highlightthickness=0, bd=0)

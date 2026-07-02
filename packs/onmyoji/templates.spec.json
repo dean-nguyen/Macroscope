@@ -1,0 +1,16 @@
+{
+  "name": "Onmyoji",
+  "description": "Templates the Onmyoji pack needs. Use Guided Capture to grab each one.",
+  "templates": [
+    { "name": "onmyoji_battle_ready.png",     "description": "The button that STARTS a fight (Challenge / 挑战 / 准备 / 开始战斗)." },
+    { "name": "onmyoji_challenge_again.png",  "description": "The REPLAY button after a win (再次挑战 / Again)." },
+    { "name": "onmyoji_victory.png",          "description": "A stable element on the VICTORY / results screen (胜利)." },
+    { "name": "onmyoji_reward_confirm.png",   "description": "The tap-to-continue / confirm that DISMISSES rewards (确定 / 点击继续)." },
+    { "name": "onmyoji_out_of_stamina.png",   "description": "The 'not enough AP / 体力 / 勾玉' popup (used to stop AP farms)." },
+    { "name": "onmyoji_no_attempts.png",      "description": "The 'no attempts left / 次数已用完' state (used to stop limited dailies)." },
+    { "name": "onmyoji_realmraid_attack.png", "description": "The ATTACK button on a Realm Raid target." },
+    { "name": "onmyoji_realmraid_refresh.png","description": "The REFRESH targets button in Realm Raid." },
+    { "name": "onmyoji_signin_claim.png",     "description": "The daily sign-in CLAIM button." },
+    { "name": "onmyoji_mail_claim.png",       "description": "The mailbox CLAIM-ALL button." }
+  ]
+}

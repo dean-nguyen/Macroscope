@@ -193,3 +193,28 @@ def _dedupe_name(base: str, existing: set) -> str:
     while f"{base} ({i})" in existing:
         i += 1
     return f"{base} ({i})"
+
+
+# ── template specs (for guided capture) ───────────────────────────────────────
+
+
+def load_template_spec(path: Path) -> List[Dict]:
+    """Load a ``*.spec.json`` describing the templates a pack needs.
+
+    Returns a list of ``{"name": ..., "description": ...}`` dicts (entries
+    without a name are dropped). The Guided Capture wizard walks this list.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    out: List[Dict] = []
+    for item in data.get("templates", []):
+        if isinstance(item, dict) and item.get("name"):
+            out.append({
+                "name": str(item["name"]),
+                "description": str(item.get("description", "")),
+            })
+    return out
+
+
+def spec_missing(spec: List[Dict], templates_dir: Path = TEMPLATES_DIR) -> List[str]:
+    """Names in *spec* that have not been captured yet."""
+    return [it["name"] for it in spec if not (templates_dir / it["name"]).exists()]
