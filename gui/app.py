@@ -16,7 +16,7 @@ Layout:
 """
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 from datetime import datetime
 from typing import Optional
 
@@ -24,6 +24,7 @@ from engine.macro_engine import MacroEngine
 from engine.hotkey_listener import HotkeyListener
 from engine.entitlements import LockedFeatureError
 from engine.licensing import LicenseManager
+from engine import pack_store
 from gui import theme as T
 from gui.widgets import Button, IconButton, Label, Frame, SectionLabel, Badge, ScrolledText, recolor
 from gui.editor import MacroEditor
@@ -162,6 +163,11 @@ class App(tk.Tk):
         tk.Label(btn_row, text="Reload", font=T.FONT_SMALL, bg=T.BG2,
                  fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
         btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._reload_macros())
+        btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
+        btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
+        tk.Label(btn_row, text="Import", font=T.FONT_SMALL, bg=T.BG2,
+                 fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
+        btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._import_pack())
         btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
         btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
 
@@ -382,6 +388,8 @@ class App(tk.Tk):
                        font=T.FONT_SMALL, bd=0)
         menu.add_command(label="Rename folder", command=lambda: self._rename_folder(folder))
         menu.add_command(label="Delete folder", command=lambda: self._delete_folder(folder))
+        menu.add_separator()
+        menu.add_command(label="Export as pack…", command=lambda: self._export_pack(folder))
         menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
 
     def _toggle_folder(self, folder: str):
@@ -620,6 +628,71 @@ class App(tk.Tk):
     def _open_templates(self):
         from gui.template_manager import TemplateManager
         TemplateManager(self, self._engine, on_change=self._rebuild_list)
+
+    # ── macro packs ─────────────────────────────────────────────────────────────
+
+    def _export_pack(self, folder: str):
+        """Bundle a folder's macros + their templates into a shareable .wmbpack."""
+        macros = [m for m in self._engine.list_macros()
+                  if m.get("_folder", "") == folder]
+        if not macros:
+            messagebox.showinfo("Export pack",
+                                f"Folder '{folder}' has no macros to export.",
+                                parent=self)
+            return
+        dest = filedialog.asksaveasfilename(
+            parent=self, title="Export macro pack",
+            defaultextension=pack_store.PACK_EXT,
+            initialfile=f"{folder or 'macros'}{pack_store.PACK_EXT}",
+            filetypes=[("Macro pack", f"*{pack_store.PACK_EXT}")],
+        )
+        if not dest:
+            return
+        try:
+            pack_store.export_pack(macros, dest, name=folder or "Pack", game=folder)
+        except Exception as exc:  # noqa: BLE001 - surface to user
+            messagebox.showerror("Export failed", str(exc), parent=self)
+            return
+        self._log(f"Exported {len(macros)} macro(s) → {dest}", tag="ok")
+        self._status("Pack exported")
+
+    def _import_pack(self):
+        """Import macros + templates from a .wmbpack (Pro-gated by macro count)."""
+        path = filedialog.askopenfilename(
+            parent=self, title="Import macro pack",
+            filetypes=[("Macro pack", f"*{pack_store.PACK_EXT}"),
+                       ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            existing = frozenset(m["name"] for m in self._engine.list_macros())
+            result = pack_store.extract_pack(path, existing_macro_names=existing)
+        except Exception as exc:  # noqa: BLE001 - bad/corrupt pack
+            messagebox.showerror("Import failed",
+                                 f"Could not read pack:\n{exc}", parent=self)
+            return
+
+        saved, locked_msg = 0, None
+        for macro in result.macros:
+            try:
+                self._engine.save_macro(macro)
+                saved += 1
+            except LockedFeatureError as exc:
+                locked_msg = exc.message
+                break
+
+        self._reload_macros()
+        name = result.manifest.get("name", "pack")
+        self._log(f"Imported {saved} macro(s) from '{name}'", tag="ok")
+        if locked_msg:
+            self._show_upgrade(locked_msg)
+        else:
+            messagebox.showinfo(
+                "Pack imported",
+                f"Imported {saved} macro(s) into folder '{result.folder}'.",
+                parent=self,
+            )
 
     def _edit_macro(self, macro: dict):
         MacroEditor(self, save_callback=self._save_macro, macro=macro)

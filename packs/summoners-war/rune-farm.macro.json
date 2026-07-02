@@ -1,0 +1,36 @@
+{
+  "name": "SW Rune Farm",
+  "description": "Auto-repeat a Summoners War dungeon to farm runes. STARTER — capture the sw_*.png templates first (see CAPTURE-GUIDE.md).",
+  "background": true,
+  "target_window": "Summoners War",
+  "loop": true,
+  "loop_delay_ms": 1500,
+  "actions": [
+    {
+      "type": "image_check",
+      "template": "templates/sw_no_energy.png",
+      "threshold": 0.85,
+      "on_found": [
+        { "type": "wait", "ms": 800 }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/sw_replay.png",
+      "threshold": 0.85,
+      "on_not_found": [
+        {
+          "type": "find_and_click",
+          "template": "templates/sw_start_battle.png",
+          "threshold": 0.85
+        }
+      ]
+    },
+    {
+      "type": "image_wait",
+      "template": "templates/sw_victory.png",
+      "timeout_ms": 180000,
+      "poll_ms": 1000
+    }
+  ]
+}
