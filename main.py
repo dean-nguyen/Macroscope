@@ -13,13 +13,14 @@ except Exception:
         pass
 
 import sys
-from engine.paths import ensure_dirs, migrate_legacy_data
+from engine.paths import ensure_dirs, migrate_legacy_data, seed_starter_macros
 from gui.app import App
 
 
 def main():
     ensure_dirs()
     migrate_legacy_data()
+    seed_starter_macros()   # first-run: bundle the Onmyoji starter macros
     app = App()
     app.mainloop()
 

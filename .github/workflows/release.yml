@@ -67,6 +67,7 @@ jobs:
             --include-module=win32api `
             --include-module=win32con `
             --include-module=pywintypes `
+            --include-data-dir=packs=packs `
             --output-dir=. `
             --output-filename=WindowMacroBot.exe `
             --assume-yes-for-downloads `
