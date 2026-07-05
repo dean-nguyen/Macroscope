@@ -1,17 +1,18 @@
 {
   "name": "Onmyoji - Awakening Dungeon",
-  "description": "Auto-repeat an Awakening (觉醒副本) dungeon for awakening materials; stops when AP runs out. STARTER: open the awakening battle screen first (see CAPTURE-GUIDE.md).",
+  "description": "Auto-repeat an Awakening (觉醒副本) dungeon for awakening materials. Resilient poll: STOPS on CAPTCHA (anti-ban) or no AP; auto-dismisses level-up, defeat and reconnect popups. STARTER: capture templates via Guided Capture.",
   "background": true,
   "target_window": "Onmyoji",
   "loop": true,
-  "loop_delay_ms": 1000,
+  "loop_delay_ms": 800,
   "actions": [
-    {
-      "type": "image_check",
-      "template": "templates/onmyoji_out_of_stamina.png",
-      "threshold": 0.85,
-      "on_found": [ { "type": "stop" } ]
-    },
+    { "type": "image_check", "template": "templates/onmyoji_captcha.png", "threshold": 0.80, "on_found": [ { "type": "stop" } ] },
+    { "type": "find_and_click", "template": "templates/onmyoji_reconnect_retry.png", "threshold": 0.85, "on_not_found": [] },
+    { "type": "find_and_click", "template": "templates/onmyoji_level_up_ok.png", "threshold": 0.85, "on_not_found": [] },
+    { "type": "image_check", "template": "templates/onmyoji_inventory_full.png", "threshold": 0.85, "on_found": [ { "type": "stop" } ] },
+    { "type": "find_and_click", "template": "templates/onmyoji_defeat_ok.png", "threshold": 0.85, "on_not_found": [] },
+    { "type": "image_check", "template": "templates/onmyoji_out_of_stamina.png", "threshold": 0.85, "on_found": [ { "type": "stop" } ] },
+    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80, "on_not_found": [] },
     {
       "type": "find_and_click",
       "template": "templates/onmyoji_challenge_again.png",
@@ -19,8 +20,6 @@
       "on_not_found": [
         { "type": "find_and_click", "template": "templates/onmyoji_battle_ready.png", "threshold": 0.85 }
       ]
-    },
-    { "type": "image_wait", "template": "templates/onmyoji_victory.png", "timeout_ms": 120000, "poll_ms": 1000 },
-    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80 }
+    }
   ]
 }
