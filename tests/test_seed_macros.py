@@ -53,5 +53,7 @@ def test_seed_skips_macro_without_name(tmp_path):
 
 
 def test_bundled_onmyoji_pack_seeds_all_macros(tmp_path):
-    # The real bundled Onmyoji pack should seed its 8 activity macros.
-    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 8
+    # The real bundled Onmyoji pack seeds 7 activity macros plus the two
+    # one-shot claims (mail and sign-in, split apart since each needs its own
+    # screen open).
+    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 9

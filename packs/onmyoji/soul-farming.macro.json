@@ -1,24 +1,120 @@
 {
   "name": "Onmyoji - Soul Farming",
-  "description": "Auto-repeat a Soul (Yuhun/御魂) dungeon. Resilient poll: STOPS on a verification/CAPTCHA (anti-ban) or when AP runs out; auto-dismisses level-up, defeat and reconnect popups. STARTER: capture templates via Guided Capture.",
+  "description": "Auto-repeat Soul Farming. Resilient poll: STOPS on a verification/CAPTCHA screen (anti-ban), on a full inventory, and when AP runs out. Dismisses confirm popups and reward screens on its own. Start it ON the activity screen.",
   "background": true,
   "target_window": "Onmyoji",
   "loop": true,
-  "loop_delay_ms": 800,
+  "loop_delay_ms": 2500,
   "actions": [
-    { "type": "image_check", "template": "templates/onmyoji_captcha.png", "threshold": 0.80, "on_found": [ { "type": "stop" } ] },
-    { "type": "find_and_click", "template": "templates/onmyoji_reconnect_retry.png", "threshold": 0.85, "on_not_found": [] },
-    { "type": "find_and_click", "template": "templates/onmyoji_level_up_ok.png", "threshold": 0.85, "on_not_found": [] },
-    { "type": "image_check", "template": "templates/onmyoji_inventory_full.png", "threshold": 0.85, "on_found": [ { "type": "stop" } ] },
-    { "type": "find_and_click", "template": "templates/onmyoji_defeat_ok.png", "threshold": 0.85, "on_not_found": [] },
-    { "type": "image_check", "template": "templates/onmyoji_out_of_stamina.png", "threshold": 0.85, "on_found": [ { "type": "stop" } ] },
-    { "type": "find_and_click", "template": "templates/onmyoji_reward_confirm.png", "threshold": 0.80, "on_not_found": [] },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_captcha.png",
+      "threshold": 0.85,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_inventory_full.png",
+      "threshold": 0.85,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_out_of_stamina.png",
+      "threshold": 0.85,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_reconnect_retry.png",
+      "threshold": 0.9,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_level_up.png",
+      "threshold": 0.9,
+      "on_found": [
+        {
+          "type": "click",
+          "xp": 0.593,
+          "yp": 0.6063
+        },
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_defeat.png",
+      "threshold": 0.9,
+      "on_found": [
+        {
+          "type": "click",
+          "xp": 0.593,
+          "yp": 0.6063
+        },
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_reward_confirm.png",
+      "threshold": 0.88,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
     {
       "type": "find_and_click",
       "template": "templates/onmyoji_challenge_again.png",
-      "threshold": 0.85,
+      "threshold": 0.9,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
       "on_not_found": [
-        { "type": "find_and_click", "template": "templates/onmyoji_battle_ready.png", "threshold": 0.85 }
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_battle_ready.png",
+          "threshold": 0.9,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 1200
+            }
+          ],
+          "on_not_found": []
+        }
       ]
     }
   ]
