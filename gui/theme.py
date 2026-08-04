@@ -142,8 +142,27 @@ def _scale_geometry_managers() -> None:
 
 
 def center_on_parent(child, parent, width: int, height: int):
-    """Position *child* centred over *parent*. Size is in logical pixels."""
+    """Position *child* centred over *parent*. Size is in logical pixels.
+
+    The result is clamped to the screen. This matters more than it looks: once
+    sizes scale with DPI, a 1040x720 dialog becomes 2603x1802 on a 250% display,
+    which is nearly the whole screen — centring that on a parent sitting near an
+    edge used to place it at negative coordinates, leaving part of the dialog
+    (including its buttons) off the display.
+    """
     w, h = px(width), px(height)
+    try:
+        screen_w, screen_h = child.winfo_screenwidth(), child.winfo_screenheight()
+    except Exception:
+        screen_w = screen_h = 0
+
     cx = parent.winfo_x() + parent.winfo_width()  // 2
     cy = parent.winfo_y() + parent.winfo_height() // 2
-    child.geometry(f"{w}x{h}+{cx - w // 2}+{cy - h // 2}")
+    x, y = cx - w // 2, cy - h // 2
+
+    if screen_w and screen_h:
+        w, h = min(w, screen_w), min(h, screen_h)
+        x = max(0, min(x, screen_w - w))
+        y = max(0, min(y, screen_h - h))
+
+    child.geometry(f"{w}x{h}+{x}+{y}")
