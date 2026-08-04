@@ -5,6 +5,7 @@ Shows window info, live capture previews from each capture method,
 and helps diagnose why image detection might be failing.
 """
 
+import ctypes
 import threading
 import time
 from pathlib import Path
@@ -17,6 +18,43 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 
 from gui import theme, widgets
+
+
+def _print_window_capture(hwnd: int, flags: int) -> Optional[np.ndarray]:
+    """Capture a window's client area with PrintWindow, as RGB uint8.
+
+    The engine no longer captures this way (it uses WGC and falls back to a
+    screen grab), but whether PrintWindow works on a given window is still worth
+    knowing when WGC comes back blank — so the Inspector keeps testing it.
+    ``flags=3`` includes PW_RENDERFULLCONTENT, which DirectX and Chromium-based
+    windows need to render anything at all.
+    """
+    import win32gui
+    import win32ui
+
+    left, top, right, bottom = win32gui.GetClientRect(hwnd)
+    w, h = right - left, bottom - top
+    if w <= 0 or h <= 0:
+        return None
+
+    window_dc = win32gui.GetWindowDC(hwnd)
+    src_dc = win32ui.CreateDCFromHandle(window_dc)
+    mem_dc = src_dc.CreateCompatibleDC()
+    bitmap = win32ui.CreateBitmap()
+    bitmap.CreateCompatibleBitmap(src_dc, w, h)
+    mem_dc.SelectObject(bitmap)
+    try:
+        if not ctypes.windll.user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), flags):
+            return None
+        info = bitmap.GetInfo()
+        arr = np.frombuffer(bitmap.GetBitmapBits(True), dtype=np.uint8)
+        arr = arr.reshape((info["bmHeight"], info["bmWidth"], 4))
+        return arr[:, :, 2::-1].copy()          # BGRA -> RGB
+    finally:
+        mem_dc.DeleteDC()
+        src_dc.DeleteDC()
+        win32gui.DeleteObject(bitmap.GetHandle())
+        win32gui.ReleaseDC(hwnd, window_dc)
 
 
 def _capture_methods_for_hwnd(hwnd: int) -> dict:
@@ -77,10 +115,9 @@ def _capture_methods_for_hwnd(hwnd: int) -> dict:
         results["wgc"] = (None, f"Error: {str(e)}")
 
     # Try PrintWindow
-    from engine import image_matcher
     for flags, name in [(3, "printwindow_3"), (1, "printwindow_1")]:
         try:
-            arr = image_matcher._try_print_window(hwnd, flags=flags)
+            arr = _print_window_capture(hwnd, flags)
             if arr is not None:
                 std = float(np.std(arr))
                 if std > 4.0:
@@ -95,6 +132,7 @@ def _capture_methods_for_hwnd(hwnd: int) -> dict:
 
     # Try screen grab
     try:
+        from engine import image_matcher
         img = image_matcher._try_screen_grab_window_cv(hwnd)
         if img is not None:
             std = float(np.std(img))
