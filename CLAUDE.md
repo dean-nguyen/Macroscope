@@ -76,6 +76,38 @@ All action types recognized by the engine (registered in both `action_runner.py`
 
 Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_and_click`) use `image_matcher.py` (OpenCV `matchTemplate`). `find_rects_and_click` uses `rect_detector.py` (OpenCV contour analysis).
 
+### Image matching behaviour
+
+`engine/image_matcher.py` carries four behaviours worth knowing before touching it:
+
+- **Uncaptured templates degrade, they don't crash.** A missing file raises
+  `TemplateMissing` (a `FileNotFoundError` subclass); `action_runner._safe_find`
+  turns it into a normal no-match and logs it once, and `MacroEngine._execute`
+  lists every missing template at the start of a run. Before this, one missing
+  file aborted the whole macro — the default state of a freshly installed pack.
+- **Matching is scale-aware.** A template captured at one window size still
+  matches at another: the known scale, then the window's discovered scale, then
+  1.0 are tried cheaply, and only if all miss is `_SCALE_LADDER` swept. Sweeps
+  are rationed by `_may_sweep` (a polling macro matches nothing most ticks, and
+  sweeping every miss would cost ~14x). Discovered scales are cached per
+  template and per window size.
+- **One capture per macro iteration.** `begin_frame_scope`/`end_frame_scope`
+  (called by `_execute`) make every image check in one tick share a single
+  screenshot, so checks judge the same screen instead of racing a changing UI.
+  Anything that sends input, or `image_wait` polling, invalidates it.
+- **Scores are remapped.** `_cv_match` returns `(raw + 1) / 2`, so a threshold of
+  `0.80` means a raw correlation of `0.60`, and unrelated content sits near
+  `0.70`. Keep this in mind when picking thresholds — measured on a live game,
+  a template that is present scores `~0.96` and absent ones reach `~0.74`.
+
+### Proportional coordinates
+
+`move`, `click` (and anything routing through `_click`, including
+`find_and_click`) accept `xp`/`yp` — fractions `0.0-1.0` of the target window's
+client area — instead of `x`/`y` pixels, so coordinate-driven macros survive a
+window resize. Requires a resolved `target_window`; `_build_ctx` supplies
+`client_w`/`client_h`. Pixels win if both are given.
+
 ### Thread safety
 
 - `MacroEngine._lock` guards `_macros`, `_running`, `_stop_flags`.

@@ -65,6 +65,20 @@ def run_action(
         raise ActionError(f"Unknown action type: '{t}'")
     handler(action)
 
+    # Anything that drives the game, or merely waits, can have changed the
+    # screen — so the iteration's shared capture must not be trusted past it.
+    if t in _INVALIDATES_FRAME:
+        im.invalidate_frame_scope()
+
+
+# Action types that always touch the game or let time pass. The conditional
+# ones (find_and_click and friends) invalidate from inside _click instead, so a
+# tick where nothing is found still reuses its single capture.
+_INVALIDATES_FRAME = frozenset({
+    "move", "click", "double_click", "right_click", "drag", "scroll",
+    "key", "type", "wait", "pixel_wait",
+})
+
 
 # ── context helpers ────────────────────────────────────────────────────────────
 
@@ -91,6 +105,34 @@ def _log(ctx: Optional[Dict], msg: str) -> None:
     fn = ctx.get("log") if ctx else None
     if callable(fn):
         fn(msg)
+
+
+def _coords(a: Dict, ctx: Optional[Dict]):
+    """Resolve an action's target point, honouring proportional coordinates.
+
+    ``x``/``y`` are pixels. ``xp``/``yp`` are fractions of the target window's
+    client area (0.0-1.0), which keeps a macro working when the player runs the
+    game at a different window size — the same guarantee template matching now
+    gives for images. Pixels win if both are given.
+    """
+    x, y = a.get("x"), a.get("y")
+    xp = a.get("xp") if x is None else None      # pixels win, per axis
+    yp = a.get("yp") if y is None else None
+    if xp is None and yp is None:
+        return x, y
+
+    cw = (ctx or {}).get("client_w") or 0
+    ch = (ctx or {}).get("client_h") or 0
+    if not cw or not ch:
+        _log(ctx, "[coords] xp/yp need a target_window with a known client size "
+                  "— falling back to x/y")
+        return x, y
+
+    if xp is not None:
+        x = int(round(float(xp) * cw))
+    if yp is not None:
+        y = int(round(float(yp) * ch))
+    return x, y
 
 
 def _search_hwnd(ctx: Optional[Dict]) -> Optional[int]:
@@ -124,15 +166,19 @@ def _make_click_ctx_for_found(ctx: Optional[Dict], search_hwnd_used: Optional[in
 # ── individual handlers ────────────────────────────────────────────────────────
 
 def _move(a: Dict, ctx) -> None:
+    x, y = _coords(a, ctx)
     if _is_bg(ctx):
-        bg.post_move(_hwnd(ctx), a["x"], a["y"])
+        bg.post_move(_hwnd(ctx), x, y)
     else:
-        pyautogui.moveTo(a["x"] + _ox(ctx), a["y"] + _oy(ctx),
+        pyautogui.moveTo(x + _ox(ctx), y + _oy(ctx),
                          duration=a.get("duration", 0.1))
 
 
 def _click(a: Dict, ctx) -> None:
-    x, y = a.get("x"), a.get("y")
+    # Every clicking path funnels through here, including find_and_click, so this
+    # is the one place that reliably knows a click really happened.
+    im.invalidate_frame_scope()
+    x, y = _coords(a, ctx)
     button = a.get("button", "left")
     if _is_bg(ctx):
         cx, cy = (x or 0), (y or 0)
@@ -282,11 +328,38 @@ def _pixel_check(a: Dict, run_actions_fn: Callable, ctx) -> None:
 
 # ── image-based actions ───────────────────────────────────────────────────────
 
+# Templates already reported as uncaptured — so a looping macro logs each one
+# once instead of every tick.
+_warned_missing: set = set()
+
+
+def _safe_find(a: Dict, sh, threshold: float, ctx, find_all: bool = False):
+    """Run a template search, treating an uncaptured template as "not visible".
+
+    A macro that references a screenshot the user has not captured yet used to
+    raise out of the whole run, so one missing file killed the entire macro —
+    which is the normal state of a freshly installed pack. Degrading to the
+    no-match branch keeps the rest of the macro working, and the miss is logged
+    (once per template) so it is not silent.
+    """
+    try:
+        if find_all:
+            return im.find_all_templates(a["template"], hwnd=sh, threshold=threshold)
+        return im.find_template(a["template"], hwnd=sh, threshold=threshold)
+    except im.TemplateMissing as exc:
+        ref = a["template"]
+        if ref not in _warned_missing:
+            _warned_missing.add(ref)
+            _log(ctx, f"[missing template] {exc} — treating as not found. "
+                      f"Capture it via Images → Guided capture…")
+        return [] if find_all else None
+
+
 def _find_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
     """Find a template image and click its centre."""
     sh = _search_hwnd(ctx)
     threshold = a.get("threshold", 0.80)
-    result = im.find_template(a["template"], hwnd=sh, threshold=threshold)
+    result = _safe_find(a, sh, threshold, ctx)
     if result:
         cx, cy, score = result
         _log(ctx,
@@ -313,7 +386,10 @@ def _image_wait(a: Dict, ctx) -> None:
 
     _log(ctx, f"[image_wait] waiting for '{a['template']}' (timeout={timeout_ms}ms)")
     while time.time() < deadline:
-        if im.find_template(a["template"], hwnd=sh, threshold=threshold):
+        # A poller must never reuse the iteration's shared frame, or it would
+        # re-test the same stale screenshot until it times out.
+        im.invalidate_frame_scope()
+        if _safe_find(a, sh, threshold, ctx):
             _log(ctx, f"[image_wait] FOUND '{a['template']}'")
             return
         time.sleep(poll_ms / 1000.0)
@@ -327,7 +403,7 @@ def _image_check(a: Dict, run_actions_fn: Callable, ctx) -> None:
     """Branch based on whether a template image is currently visible."""
     sh        = _search_hwnd(ctx)
     threshold = a.get("threshold", 0.80)
-    result    = im.find_template(a["template"], hwnd=sh, threshold=threshold)
+    result    = _safe_find(a, sh, threshold, ctx)
     status    = f"FOUND at {result[:2]} score={result[2]:.3f}" if result else "NOT FOUND"
     _log(ctx, f"[image_check] {status} '{a['template']}'")
     branch = "on_found" if result else "on_not_found"
@@ -422,7 +498,7 @@ def _find_all_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
     delay     = a.get("click_delay", 500) / 1000.0
     order     = a.get("order", "top_left")
 
-    matches = im.find_all_templates(a["template"], hwnd=sh, threshold=threshold)
+    matches = _safe_find(a, sh, threshold, ctx, find_all=True)
 
     if not matches:
         _log(ctx, f"[find_all] NO matches for '{a['template']}' (threshold={threshold})")

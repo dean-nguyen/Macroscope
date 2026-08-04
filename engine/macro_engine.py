@@ -22,7 +22,7 @@ from engine.entitlements import (
     check_parallel,
     for_tier,
 )
-from engine.paths import MACROS_DIR
+from engine.paths import MACROS_DIR, TEMPLATES_DIR
 
 
 def _clean_folder(folder: str) -> str:
@@ -458,6 +458,8 @@ class MacroEngine:
         loop = macro.get("loop", False)
         loop_delay = macro.get("loop_delay_ms", 0) / 1000.0
 
+        self._warn_missing_templates(macro)
+
         # Resolve the target hwnd ONCE at macro start — not every iteration.
         # This prevents flipping between identically-titled windows.
         resolved_hwnd = self._resolve_hwnd(macro)
@@ -476,7 +478,15 @@ class MacroEngine:
                         return
                     run_action(action, run_actions, ctx)
 
-            run_actions(macro["actions"])
+            # One screenshot shared by every image check in this iteration:
+            # cheaper, and all checks judge the same screen instead of racing
+            # a UI that can change between them.
+            from engine import image_matcher as im
+            im.begin_frame_scope()
+            try:
+                run_actions(macro["actions"])
+            finally:
+                im.end_frame_scope()
 
         if loop:
             while not stop.is_set():
@@ -485,6 +495,26 @@ class MacroEngine:
                     stop.wait(timeout=loop_delay)
         else:
             _run_once()
+
+    def _warn_missing_templates(self, macro: Dict) -> None:
+        """Report, once per run, which templates this macro needs but that have
+        not been captured yet.
+
+        Those checks simply never match (see action_runner._safe_find), so the
+        macro still runs — but without this line a half-captured pack looks like
+        a macro that silently does nothing.
+        """
+        try:
+            from engine import template_store as ts
+            refs = {ts.basename_of(r) for r in ts.iter_refs(macro.get("actions", []))}
+            missing = sorted(n for n in refs if not (TEMPLATES_DIR / n).exists())
+            if missing:
+                self._log(
+                    f"[templates missing] {len(missing)} of {len(refs)} not captured "
+                    f"yet, so those checks can never match: {', '.join(missing)}"
+                )
+        except Exception:
+            pass
 
     def _resolve_hwnd(self, macro: Dict) -> Optional[int]:
         """Pin a concrete, valid hwnd for this macro run.
@@ -558,6 +588,7 @@ class MacroEngine:
         # ── Resolve the target window (shared by all modes) ────────────────────
         anchor_hwnd = None
         offset_x = offset_y = 0
+        client_w = client_h = 0
 
         if target or target_hwnd:
             try:
@@ -575,6 +606,13 @@ class MacroEngine:
                 if hwnd:
                     anchor_hwnd = hwnd
                     offset_x, offset_y = win32gui.ClientToScreen(hwnd, (0, 0))
+                    l, t, r, b = win32gui.GetClientRect(hwnd)
+                    client_w, client_h = r - l, b - t
+                    if win32gui.IsIconic(hwnd):
+                        # Minimised windows yield no frames, so every image check
+                        # silently misses — say so instead of looping on nothing.
+                        self._log(f"[ctx] '{target}' is MINIMISED — image checks "
+                                  f"cannot see it; restore the window")
                 else:
                     self._log(f"[ctx] window '{target}' not found — using screen coords")
             except Exception as exc:
@@ -585,6 +623,10 @@ class MacroEngine:
             "anchor_hwnd": anchor_hwnd,
             "offset_x":    offset_x,
             "offset_y":    offset_y,
+            # Client size, so actions can address the window proportionally
+            # (xp/yp) and keep working when the player resizes it.
+            "client_w":    client_w,
+            "client_h":    client_h,
             "log":         self._log,
         }
 
@@ -641,6 +683,10 @@ def _validate_actions(actions: List[Dict]) -> None:
         if t not in _REQUIRED_ACTION_FIELDS:
             raise ValueError(f"Action[{i}] unknown type '{t}'")
         for field in _REQUIRED_ACTION_FIELDS[t]:
+            # x/y may be given proportionally instead (xp/yp = fraction of the
+            # target window's client area), which survives a window resize.
+            if field in ("x", "y") and f"{field}p" in action:
+                continue
             if field not in action:
                 raise ValueError(
                     f"Action[{i}] type='{t}' missing required field '{field}'"
