@@ -90,7 +90,7 @@ def _capture_methods_for_hwnd(hwnd: int) -> dict:
                     results[name] = (None, f"All blank (std={std:.1f})")
             else:
                 results[name] = (None, "Returned None")
-        except Exception as e:
+        except Exception as e:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
             results[name] = (None, f"Error: {str(e)}")
 
     # Try screen grab
