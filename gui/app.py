@@ -26,7 +26,8 @@ from engine.entitlements import LockedFeatureError
 from engine.licensing import LicenseManager
 from engine import pack_store
 from gui import theme as T
-from gui.widgets import Button, IconButton, Label, Frame, SectionLabel, Badge, ScrolledText, recolor
+from gui.widgets import (Button, IconButton, Label, Frame, SectionLabel, Badge,
+                         ScrolledText, Scrollbar, recolor)
 from gui.editor import MacroEditor
 from gui.license_dialog import LicenseDialog
 
@@ -34,9 +35,12 @@ from gui.license_dialog import LicenseDialog
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        # Must run before any widget is laid out: measures the display scale and
+        # makes pixel padding follow the same DPI Tk already uses for fonts.
+        T.init_scaling(self)
         self.title("Window Macro Bot")
-        self.geometry("1060x680")
-        self.minsize(760, 500)
+        self.geometry(f"{T.px(1060)}x{T.px(680)}")
+        self.minsize(T.px(760), T.px(500))
         self.configure(bg=T.BG)
         self.resizable(True, True)
 
@@ -76,14 +80,14 @@ class App(tk.Tk):
     # ── header ────────────────────────────────────────────────────────────────
 
     def _build_header(self):
-        hdr = tk.Frame(self, bg=T.BG2, height=52)
+        # Same reasoning as the status bar: let the row grow with its contents and
+        # treat px(52) as a minimum, so scaled fonts and buttons are never clipped.
+        hdr = tk.Frame(self, bg=T.BG2)
         hdr.grid(row=0, column=0, columnspan=2, sticky="ew")
-        hdr.grid_propagate(False)
+        self.grid_rowconfigure(0, minsize=T.px(52))
 
         inner = tk.Frame(hdr, bg=T.BG2)
         inner.pack(fill=tk.X, padx=T.PAD, pady=0)
-        inner.pack_propagate(False)
-        inner.configure(height=50)
 
         # Left: app title
         tk.Label(
@@ -126,12 +130,12 @@ class App(tk.Tk):
         hk.bind("<Leave>",     lambda _: hk.config(fg=T.FG_DIM))
 
         # Bottom border
-        tk.Frame(hdr, bg=T.SEP, height=1).pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Frame(hdr, bg=T.SEP, height=T.px(1)).pack(fill=tk.X, side=tk.BOTTOM)
 
     # ── sidebar ───────────────────────────────────────────────────────────────
 
     def _build_sidebar(self):
-        sidebar = tk.Frame(self, bg=T.BG2, width=T.SIDEBAR_W)
+        sidebar = tk.Frame(self, bg=T.BG2, width=T.px(T.SIDEBAR_W))
         sidebar.grid(row=1, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
         sidebar.grid_rowconfigure(1, weight=1)
@@ -173,8 +177,7 @@ class App(tk.Tk):
 
         # Scrollable list
         canvas = tk.Canvas(sidebar, bg=T.BG2, highlightthickness=0, bd=0)
-        vsb = tk.Scrollbar(sidebar, orient=tk.VERTICAL, command=canvas.yview,
-                           bg=T.BG3, troughcolor=T.BG2, width=6)
+        vsb = Scrollbar(sidebar, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
         canvas.grid(row=1, column=0, sticky="nsew")
         vsb.grid(row=1, column=1, sticky="ns")
@@ -199,7 +202,7 @@ class App(tk.Tk):
         self._list_canvas = canvas
 
         # Right border separator
-        tk.Frame(self, bg=T.SEP, width=1).grid(row=1, column=0, sticky="nse")
+        tk.Frame(self, bg=T.SEP, width=T.px(1)).grid(row=1, column=0, sticky="nse")
 
     # ── detail area (right side) ──────────────────────────────────────────────
 
@@ -240,7 +243,7 @@ class App(tk.Tk):
         # Header bar for the drawer
         log_hdr = tk.Frame(self._log_frame, bg=T.BG2)
         log_hdr.pack(fill=tk.X)
-        tk.Frame(log_hdr, bg=T.SEP, height=1).pack(fill=tk.X, side=tk.TOP)
+        tk.Frame(log_hdr, bg=T.SEP, height=T.px(1)).pack(fill=tk.X, side=tk.TOP)
         log_hdr_inner = tk.Frame(log_hdr, bg=T.BG2)
         log_hdr_inner.pack(fill=tk.X, padx=T.PAD, pady=4)
         SectionLabel(log_hdr_inner, "Log", bg=T.BG2).pack(side=tk.LEFT)
@@ -273,10 +276,14 @@ class App(tk.Tk):
     # ── status bar ────────────────────────────────────────────────────────────
 
     def _build_status_bar(self):
-        bar = tk.Frame(self, bg=T.BG2, height=26)
+        # Height comes from the text, with px(26) only as a floor. Pinning it to a
+        # fixed height clipped the label once fonts scaled with DPI -- and the
+        # grid_propagate(False) that was meant to pin it never applied anyway,
+        # because this frame's children are laid out with pack, not grid.
+        bar = tk.Frame(self, bg=T.BG2)
         bar.grid(row=2, column=0, columnspan=2, sticky="ew")
-        bar.grid_propagate(False)
-        tk.Frame(bar, bg=T.SEP, height=1).pack(fill=tk.X, side=tk.TOP)
+        self.grid_rowconfigure(2, minsize=T.px(26))
+        tk.Frame(bar, bg=T.SEP, height=T.px(1)).pack(fill=tk.X, side=tk.TOP)
 
         inner = tk.Frame(bar, bg=T.BG2)
         inner.pack(fill=tk.X, padx=T.PAD)

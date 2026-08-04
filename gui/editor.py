@@ -15,7 +15,7 @@ from typing import Callable, Dict, List, Optional
 from engine.paths import TEMPLATES_DIR
 from engine import template_store as ts
 from gui import theme as T
-from gui.widgets import Button, SectionLabel, prompt_text
+from gui.widgets import Button, SectionLabel, Scrollbar, prompt_text
 from gui.picker import PixelPicker
 
 
@@ -171,8 +171,7 @@ def _build_type_picker_body(popup: tk.Toplevel, title: str,
     wrap.columnconfigure(0, weight=1)
 
     canvas = tk.Canvas(wrap, bg=T.BG, highlightthickness=0, bd=0)
-    vsb = tk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview,
-                       bg=T.BG3, troughcolor=T.BG2, width=10)
+    vsb = Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
     canvas.configure(yscrollcommand=vsb.set)
     canvas.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
@@ -226,7 +225,7 @@ class MacroEditor(tk.Toplevel):
         self.title("Edit Macro" if macro else "New Macro")
         self.configure(bg=T.BG)
         T.center_on_parent(self, parent, 1040, 720)
-        self.minsize(760, 520)
+        self.minsize(T.px(760), T.px(520))
         self.resizable(True, True)
 
         self._save_callback = save_callback
@@ -256,7 +255,7 @@ class MacroEditor(tk.Toplevel):
         hdr = tk.Frame(self, bg=T.BG2)
         hdr.grid(row=0, column=0, sticky="ew")
         self._build_header(hdr)
-        tk.Frame(self, bg=T.SEP, height=1).grid(row=1, column=0, sticky="ew")
+        tk.Frame(self, bg=T.SEP, height=T.px(1)).grid(row=1, column=0, sticky="ew")
 
         # body
         body = tk.Frame(self, bg=T.BG)
@@ -268,7 +267,7 @@ class MacroEditor(tk.Toplevel):
         self._build_sidebar(body)
 
         # footer
-        tk.Frame(self, bg=T.SEP, height=1).grid(row=3, column=0, sticky="ew")
+        tk.Frame(self, bg=T.SEP, height=T.px(1)).grid(row=3, column=0, sticky="ew")
         foot = tk.Frame(self, bg=T.BG2)
         foot.grid(row=4, column=0, sticky="ew")
         inner = tk.Frame(foot, bg=T.BG2)
@@ -365,8 +364,7 @@ class MacroEditor(tk.Toplevel):
 
         # scrollable list
         canvas = tk.Canvas(panel, bg=T.BG, highlightthickness=0)
-        sb = tk.Scrollbar(panel, orient=tk.VERTICAL, command=canvas.yview,
-                           bg=T.BG3, troughcolor=T.BG2, width=8)
+        sb = Scrollbar(panel, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=sb.set)
         canvas.grid(row=1, column=0, sticky="nsew")
         sb.grid(row=1, column=1, sticky="ns")
@@ -397,7 +395,7 @@ class MacroEditor(tk.Toplevel):
         self._sb_btn(sb, "Pick pixel",     self._pick_pixel    ).pack(fill=tk.X, padx=10, pady=2)
         self._sb_btn(sb, "Capture region", self._capture_region).pack(fill=tk.X, padx=10, pady=2)
 
-        tk.Frame(sb, bg=T.BORDER, height=1).pack(fill=tk.X, padx=12, pady=12)
+        tk.Frame(sb, bg=T.BORDER, height=T.px(1)).pack(fill=tk.X, padx=12, pady=12)
 
         SectionLabel(sb, "Tips", bg=T.BG2).pack(anchor="w", padx=12, pady=(0, 6))
         for tip in [
@@ -407,7 +405,7 @@ class MacroEditor(tk.Toplevel):
             "Keys: ctrl, shift, F1 ...",
         ]:
             tk.Label(sb, text=tip, font=T.FONT_SMALL, bg=T.BG2, fg=T.FG_XDIM,
-                     justify=tk.LEFT, wraplength=145).pack(anchor="w", padx=12, pady=2)
+                     justify=tk.LEFT, wraplength=T.px(145)).pack(anchor="w", padx=12, pady=2)
 
     def _sb_btn(self, parent, text, command):
         bg, hov = T.BG3, T.BG4
@@ -514,7 +512,7 @@ class MacroEditor(tk.Toplevel):
         card.pack(fill=tk.BOTH, expand=True)
 
         # left colour stripe
-        tk.Frame(card, bg=accent, width=5).pack(side=tk.LEFT, fill=tk.Y)
+        tk.Frame(card, bg=accent, width=T.px(5)).pack(side=tk.LEFT, fill=tk.Y)
 
         body = tk.Frame(card, bg=T.BG2)
         body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, pady=5)
@@ -1046,14 +1044,14 @@ class SubActionsDialog(tk.Toplevel):
             font=T.FONT_SMALL, padx=6, pady=2, bd=0)
         json_btn.pack(side=tk.LEFT, padx=2)
 
-        tk.Frame(hdr, bg=T.SEP, height=1).pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Frame(hdr, bg=T.SEP, height=T.px(1)).pack(fill=tk.X, side=tk.BOTTOM)
 
         # ── Scrollable action list ────────────────────────────────────────────
         container = tk.Frame(self, bg=T.BG)
         container.pack(fill=tk.BOTH, expand=True)
 
         canvas = tk.Canvas(container, bg=T.BG, highlightthickness=0, bd=0)
-        sb = tk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        sb = Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
         self._list_frame = tk.Frame(canvas, bg=T.BG)
         self._list_frame.bind("<Configure>",
             lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -1075,7 +1073,7 @@ class SubActionsDialog(tk.Toplevel):
         self._json_visible = False
 
         # ── Footer ────────────────────────────────────────────────────────────
-        tk.Frame(self, bg=T.SEP, height=1).pack(fill=tk.X)
+        tk.Frame(self, bg=T.SEP, height=T.px(1)).pack(fill=tk.X)
         foot = tk.Frame(self, bg=T.BG2)
         foot.pack(fill=tk.X)
         inner_f = tk.Frame(foot, bg=T.BG2)
@@ -1194,7 +1192,7 @@ class SubActionsDialog(tk.Toplevel):
         card.pack(fill=tk.BOTH, expand=True)
 
         # Colour stripe
-        tk.Frame(card, bg=accent, width=4).pack(side=tk.LEFT, fill=tk.Y)
+        tk.Frame(card, bg=accent, width=T.px(4)).pack(side=tk.LEFT, fill=tk.Y)
 
         body = tk.Frame(card, bg=T.BG2)
         body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, pady=4)
@@ -1476,7 +1474,7 @@ class WindowPicker(tk.Toplevel):
         self.title("Select Target Window")
         self.configure(bg=T.BG)
         T.center_on_parent(self, parent, 680, 520)
-        self.minsize(500, 350)
+        self.minsize(T.px(500), T.px(350))
         self.grab_set()
         self.transient(parent)
 
@@ -1493,7 +1491,7 @@ class WindowPicker(tk.Toplevel):
         container.pack(fill=tk.BOTH, expand=True, padx=14, pady=4)
 
         canvas = tk.Canvas(container, bg=T.BG, highlightthickness=0, borderwidth=0)
-        sb = tk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        sb = Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
         self._inner = tk.Frame(canvas, bg=T.BG)
 
         self._inner.bind("<Configure>", lambda _: canvas.configure(
@@ -1573,7 +1571,7 @@ class WindowPicker(tk.Toplevel):
             info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
             tk.Label(info, text=title, font=T.FONT_BOLD, bg=T.BG2, fg=T.FG,
-                     anchor="w", wraplength=350).pack(anchor="w")
+                     anchor="w", wraplength=T.px(350)).pack(anchor="w")
 
             # Window details
             try:

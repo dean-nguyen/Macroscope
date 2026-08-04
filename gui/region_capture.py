@@ -86,7 +86,7 @@ class RegionCapture:
         # Canvas coords == screen coords because canvas fills the fullscreen overlay
         self._rect_id = self._canvas.create_rectangle(
             event.x, event.y, event.x, event.y,
-            outline=T.ACCENT, width=2, fill="",
+            outline=T.ACCENT, width=T.px(2), fill="",
         )
 
     def _on_drag(self, event):

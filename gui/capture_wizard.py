@@ -45,7 +45,7 @@ class CaptureWizard(tk.Toplevel):
 
         self.title("Guided Capture")
         self.configure(bg=T.BG)
-        self.geometry("460x420")
+        self.geometry(f"{T.px(460)}x{T.px(420)}")
         self.resizable(False, False)
         self.transient(parent)
         T.center_on_parent(self, parent, 460, 420)
@@ -73,16 +73,23 @@ class CaptureWizard(tk.Toplevel):
         self._status.pack(fill=tk.X, padx=16)
 
         self._desc = tk.Label(self, text="", bg=T.BG3, fg=T.FG_DIM,
-                              font=T.FONT, wraplength=420, justify="left",
+                              font=T.FONT, wraplength=T.px(420), justify="left",
                               padx=12, pady=10, anchor="w")
         self._desc.pack(fill=tk.X, padx=16, pady=12)
 
-        self._preview = tk.Label(self, bg=T.BG2, width=self.PREVIEW[0],
-                                 height=self.PREVIEW[1])
-        self._preview.pack(pady=4)
+        # PREVIEW is a pixel size (it also sizes the thumbnail), but width= and
+        # height= on a Label without an image mean *characters* and *lines* —
+        # 150 characters wide, in a 460px dialog. Hold the size on a Frame, where
+        # those options really are pixels, and let the Label fill it.
+        holder = tk.Frame(self, bg=T.BG2,
+                          width=T.px(self.PREVIEW[0]), height=T.px(self.PREVIEW[1]))
+        holder.pack(pady=4)
+        holder.pack_propagate(False)
+        self._preview = tk.Label(holder, bg=T.BG2)
+        self._preview.pack(fill=tk.BOTH, expand=True)
 
         hint = tk.Label(
-            self, bg=T.BG, fg=T.FG_XDIM, font=T.FONT_SMALL, wraplength=420,
+            self, bg=T.BG, fg=T.FG_XDIM, font=T.FONT_SMALL, wraplength=T.px(420),
             justify="left",
             text="Tip: have the game visible first. Click Capture, then drag a "
                  "tight box around the element. Esc when you're done.",
@@ -132,7 +139,9 @@ class CaptureWizard(tk.Toplevel):
             try:
                 with Image.open(self._path_for(name)) as img:
                     img = img.convert("RGB")
-                    img.thumbnail(self.PREVIEW)
+                    # Physical pixels, so the thumbnail fills the scaled holder
+                    # instead of sitting tiny in the middle of it.
+                    img.thumbnail((T.px(self.PREVIEW[0]), T.px(self.PREVIEW[1])))
                     self._preview_img = ImageTk.PhotoImage(img)
             except Exception:
                 self._preview_img = None

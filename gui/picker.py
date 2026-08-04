@@ -72,7 +72,7 @@ class PixelPicker:
         self._overlay = ov
 
         # ── info bar at the top ───────────────────────────────────────────────
-        bar = tk.Frame(ov, bg="#111111", height=46)
+        bar = tk.Frame(ov, bg="#111111", height=T.px(46))
         bar.place(relx=0, rely=0, relwidth=1)
         bar.pack_propagate(False)
 

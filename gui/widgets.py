@@ -1,7 +1,60 @@
 """Reusable themed widgets — clean, minimal style."""
 
 import tkinter as tk
+from tkinter import ttk
+
 from gui import theme as T
+
+
+# ── scrollbars ────────────────────────────────────────────────────────────────
+
+_scrollbar_style_ready = False
+
+
+def _ensure_scrollbar_style(widget) -> None:
+    """Register dark scrollbar styles once per interpreter."""
+    global _scrollbar_style_ready
+    if _scrollbar_style_ready:
+        return
+    style = ttk.Style(widget)
+    for orient in ("Vertical", "Horizontal"):
+        for part in ("trough", "thumb"):
+            try:
+                style.element_create(f"Dark.{orient}.Scrollbar.{part}",
+                                     "from", "clam",
+                                     f"{orient}.Scrollbar.{part}")
+            except tk.TclError:
+                pass                     # already registered
+        # Trough + thumb only: no arrow buttons, which cannot be themed and
+        # look like Windows 95 next to the rest of the UI.
+        style.layout(f"Dark.{orient}.TScrollbar", [
+            (f"Dark.{orient}.Scrollbar.trough", {"sticky": "nswe", "children": [
+                (f"Dark.{orient}.Scrollbar.thumb", {"expand": 1, "sticky": "nswe"}),
+            ]}),
+        ])
+        style.configure(f"Dark.{orient}.TScrollbar",
+                        troughcolor=T.BG2, background=T.BG4,
+                        bordercolor=T.BG2, lightcolor=T.BG4, darkcolor=T.BG4,
+                        arrowsize=T.px(10), relief="flat")
+        style.map(f"Dark.{orient}.TScrollbar",
+                  background=[("pressed", T.ACCENT), ("active", T.ACCENT_LT)])
+    _scrollbar_style_ready = True
+
+
+def Scrollbar(parent, orient=tk.VERTICAL, **kw):
+    """A scrollbar that is actually dark.
+
+    tk.Scrollbar on Windows paints its thumb with the system button-face colour
+    (#f0f0f0) and ignores ``bg`` — which put a bright grey bar down the middle of
+    every dark panel in this app. Only ttk can colour the thumb, and the stock
+    ttk themes on Windows cannot either, so the trough and thumb elements are
+    borrowed from the ``clam`` theme. Borrowing the elements rather than calling
+    ``theme_use("clam")`` keeps every other ttk widget as it was.
+    """
+    _ensure_scrollbar_style(parent)
+    name = "Vertical" if orient == tk.VERTICAL else "Horizontal"
+    return ttk.Scrollbar(parent, orient=orient,
+                         style=f"Dark.{name}.TScrollbar", **kw)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -177,17 +230,13 @@ class ScrolledText(tk.Frame):
             pady=6,
             **kw,
         )
-        vsb = tk.Scrollbar(self, command=self.text.yview, bg=T.BG3,
-                           troughcolor=T.BG2, width=6)
+        vsb = Scrollbar(self, command=self.text.yview)
         self.text.configure(yscrollcommand=vsb.set)
         self.text.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
 
         if horizontal:
-            xsb = tk.Scrollbar(
-                self, orient=tk.HORIZONTAL, command=self.text.xview,
-                bg=T.BG3, troughcolor=T.BG2, width=6,
-            )
+            xsb = Scrollbar(self, orient=tk.HORIZONTAL, command=self.text.xview)
             self.text.configure(xscrollcommand=xsb.set)
             xsb.grid(row=1, column=0, sticky="ew")
 

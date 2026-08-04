@@ -152,7 +152,7 @@ class _WindowPickerDialog:
         self.result = None
         self.top = tk.Toplevel(parent)
         self.top.title("Pick a Window")
-        self.top.geometry("400x400")
+        self.top.geometry(f"{theme.px(400)}x{theme.px(400)}")
 
         frame = ttk.Frame(self.top)
         frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -202,7 +202,7 @@ class InspectorWindow:
         self.parent = parent
         self.window = tk.Toplevel(parent)
         self.window.title("Window Inspector")
-        self.window.geometry("1200x700")
+        self.window.geometry(f"{theme.px(1200)}x{theme.px(700)}")
         self.window.configure(bg=theme.BG)
 
         self._current_hwnd = None

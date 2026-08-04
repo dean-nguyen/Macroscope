@@ -53,7 +53,7 @@ class LicenseDialog(tk.Toplevel):
         if reason:
             banner = tk.Label(
                 self, text=reason, bg=T.BG3, fg=T.WARNING,
-                font=T.FONT_SMALL, wraplength=400, justify="left",
+                font=T.FONT_SMALL, wraplength=T.px(400), justify="left",
                 padx=12, pady=8,
             )
             banner.pack(fill=tk.X, padx=16, pady=(16, 0))
@@ -80,7 +80,7 @@ class LicenseDialog(tk.Toplevel):
         )
         tk.Label(
             self, text=feats, bg=T.BG, fg=T.FG_DIM, font=T.FONT_SMALL,
-            wraplength=400, justify="left",
+            wraplength=T.px(400), justify="left",
         ).pack(anchor="w", padx=16, pady=(8, 4))
 
         # Key entry
@@ -98,7 +98,7 @@ class LicenseDialog(tk.Toplevel):
         self._status = tk.StringVar(value="")
         self._status_lbl = tk.Label(
             self, textvariable=self._status, bg=T.BG, fg=T.FG_DIM,
-            font=T.FONT_SMALL, wraplength=400, justify="left",
+            font=T.FONT_SMALL, wraplength=T.px(400), justify="left",
         )
         self._status_lbl.pack(anchor="w", padx=16, pady=(6, 0))
 

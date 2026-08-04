@@ -19,7 +19,7 @@ from engine import template_store as ts
 from engine import pack_store
 from engine.paths import TEMPLATES_DIR, app_root
 from gui import theme as T
-from gui.widgets import Button, SectionLabel, prompt_text
+from gui.widgets import Button, SectionLabel, Scrollbar, prompt_text
 
 try:
     from PIL import Image, ImageTk
@@ -38,8 +38,8 @@ class TemplateManager(tk.Toplevel):
 
         self.title("Template Library")
         self.configure(bg=T.BG)
-        self.geometry("720x560")
-        self.minsize(560, 400)
+        self.geometry(f"{T.px(720)}x{T.px(560)}")
+        self.minsize(T.px(560), T.px(400))
         self.transient(parent)
 
         self._build_header()
@@ -66,7 +66,7 @@ class TemplateManager(tk.Toplevel):
                variant="ghost").pack(side=tk.RIGHT, padx=(6, 0))
         Button(inner, "Refresh", command=self._refresh,
                variant="ghost").pack(side=tk.RIGHT)
-        tk.Frame(hdr, bg=T.SEP, height=1).pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Frame(hdr, bg=T.SEP, height=T.px(1)).pack(fill=tk.X, side=tk.BOTTOM)
 
     def _guided_capture(self):
         """Pick a pack's template spec and step-capture every image it needs."""
@@ -92,8 +92,7 @@ class TemplateManager(tk.Toplevel):
 
     def _build_list(self):
         canvas = tk.Canvas(self, bg=T.BG, highlightthickness=0, bd=0)
-        vsb = tk.Scrollbar(self, orient=tk.VERTICAL, command=canvas.yview,
-                           bg=T.BG3, troughcolor=T.BG, width=8)
+        vsb = Scrollbar(self, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -145,7 +144,7 @@ class TemplateManager(tk.Toplevel):
                  text=f"⚠ {len(missing)} referenced template(s) are missing: "
                       + ", ".join(missing[:6]) + ("…" if len(missing) > 6 else ""),
                  bg=T.BG3, fg=T.WARNING, font=T.FONT_SMALL,
-                 wraplength=640, justify="left", padx=10, pady=8).pack(anchor="w")
+                 wraplength=T.px(640), justify="left", padx=10, pady=8).pack(anchor="w")
 
     def _add_row(self, info, users: List[str]):
         row = tk.Frame(self._inner, bg=T.BG3)

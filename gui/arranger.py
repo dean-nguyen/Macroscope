@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from PIL import ImageGrab, ImageTk, Image as PILImage
 
 from gui import theme as T
-from gui.widgets import Button
+from gui.widgets import Button, Scrollbar
 
 import win32api
 import win32gui
@@ -123,7 +123,7 @@ class WindowArranger(tk.Toplevel):
         self.title("Arrange Windows")
         self.configure(bg=T.BG)
         T.center_on_parent(self, parent, 780, 580)
-        self.minsize(580, 420)
+        self.minsize(T.px(580), T.px(420))
         self.transient(parent)
 
         self._monitors = _get_monitors()
@@ -218,7 +218,7 @@ class WindowArranger(tk.Toplevel):
         lc = tk.Frame(left, bg=T.BG2)
         lc.grid(row=1, column=0, sticky="nsew")
         canvas = tk.Canvas(lc, bg=T.BG2, highlightthickness=0, bd=0)
-        sb = tk.Scrollbar(lc, orient=tk.VERTICAL, command=canvas.yview)
+        sb = Scrollbar(lc, orient=tk.VERTICAL, command=canvas.yview)
         self._list_inner = tk.Frame(canvas, bg=T.BG2)
         self._list_inner.bind("<Configure>",
             lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -245,7 +245,7 @@ class WindowArranger(tk.Toplevel):
         rc = tk.Frame(right, bg=T.BG2)
         rc.grid(row=1, column=0, sticky="nsew")
         canvas2 = tk.Canvas(rc, bg=T.BG2, highlightthickness=0, bd=0)
-        sb2 = tk.Scrollbar(rc, orient=tk.VERTICAL, command=canvas2.yview)
+        sb2 = Scrollbar(rc, orient=tk.VERTICAL, command=canvas2.yview)
         self._order_inner = tk.Frame(canvas2, bg=T.BG2)
         self._order_inner.bind("<Configure>",
             lambda _: canvas2.configure(scrollregion=canvas2.bbox("all")))
@@ -264,7 +264,7 @@ class WindowArranger(tk.Toplevel):
         inner.pack(fill=tk.X, padx=12, pady=8)
 
         # Preview
-        self._preview = tk.Canvas(inner, bg="#111", width=280, height=100,
+        self._preview = tk.Canvas(inner, bg="#111", width=T.px(280), height=T.px(100),
                                    highlightthickness=1,
                                    highlightbackground=T.BORDER)
         self._preview.pack(side=tk.LEFT, padx=(0, 12))
@@ -398,7 +398,7 @@ class WindowArranger(tk.Toplevel):
 
         # Monitor outline
         c.create_rectangle(ox, oy, ox + wa_w * scale, oy + wa_h * scale,
-                           outline=T.BORDER, width=1)
+                           outline=T.BORDER, width=T.px(1))
 
         # Draw columns — width split evenly, height = work area
         cell_w = (wa_w - gap * (cols + 1)) / cols
