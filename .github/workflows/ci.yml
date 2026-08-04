@@ -1,0 +1,53 @@
+name: CI
+
+# Until this existed, tests only ran inside release.yml, which triggers on a v*
+# tag — so a broken commit could sit on main until release day. This is the gate
+# that should have caught it.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Windows-only by nature: pywin32, Windows.Graphics.Capture, PostMessage.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is what the project is developed on, 3.13 is what release.yml
+        # builds with — run both so the two cannot drift apart unnoticed.
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Import every module
+        # The GUI has no test coverage, so a syntax error or a bad import in
+        # gui/ would otherwise reach main unnoticed. Importing is enough to
+        # catch that and needs no display: no Tk window is created.
+        run: python tools/import_check.py
+
+      - name: Check the shipped packs still load
+        # pack_store and the macro validator are what a buyer's first run depends
+        # on; a malformed macro or a spec that drifts from it should fail here.
+        run: python -m pytest tests/test_pack_store.py tests/test_seed_macros.py -q
