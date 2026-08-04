@@ -20,6 +20,17 @@ import win32con
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+def _ellipsize(text: str, limit: int) -> str:
+    """Shorten *text* to *limit* characters, marking that it was cut.
+
+    A bare slice reads as a rendering bug rather than a truncation: window titles
+    ended mid-word flush against the row edge, which looked exactly like text
+    being clipped by a too-narrow panel.
+    """
+    text = text.strip()
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
 def _list_windows() -> List[Tuple[int, str]]:
     """Return [(hwnd, title), …] for visible top-level windows."""
     windows = []
@@ -222,7 +233,12 @@ class WindowArranger(tk.Toplevel):
         self._list_inner = tk.Frame(canvas, bg=T.BG2)
         self._list_inner.bind("<Configure>",
             lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self._list_inner, anchor="nw")
+        list_item = canvas.create_window((0, 0), window=self._list_inner, anchor="nw")
+        # Without this the inner frame keeps its own requested width and the rows
+        # stop short of the panel edge — measured 763px of rows in a 911px canvas,
+        # throwing away 148px that the window titles could have used.
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfig(list_item, width=e.width))
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -249,7 +265,9 @@ class WindowArranger(tk.Toplevel):
         self._order_inner = tk.Frame(canvas2, bg=T.BG2)
         self._order_inner.bind("<Configure>",
             lambda _: canvas2.configure(scrollregion=canvas2.bbox("all")))
-        canvas2.create_window((0, 0), window=self._order_inner, anchor="nw")
+        order_item = canvas2.create_window((0, 0), window=self._order_inner, anchor="nw")
+        canvas2.bind("<Configure>",
+                     lambda e: canvas2.itemconfig(order_item, width=e.width))
         canvas2.configure(yscrollcommand=sb2.set)
         canvas2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
@@ -315,7 +333,7 @@ class WindowArranger(tk.Toplevel):
 
             # Title
             lbl_fg = T.FG if not checked else T.ACCENT
-            tk.Label(row, text=title[:42], font=T.FONT, bg=T.BG3,
+            tk.Label(row, text=_ellipsize(title, 42), font=T.FONT, bg=T.BG3,
                      fg=lbl_fg, anchor="w").pack(side=tk.LEFT, fill=tk.X,
                      expand=True, pady=4)
 
@@ -343,7 +361,7 @@ class WindowArranger(tk.Toplevel):
                 side=tk.LEFT, padx=(4, 6), pady=3)
 
             # Title
-            tk.Label(row, text=title[:20], font=T.FONT_SMALL, bg=T.BG3,
+            tk.Label(row, text=_ellipsize(title, 20), font=T.FONT_SMALL, bg=T.BG3,
                      fg=T.FG, anchor="w").pack(side=tk.LEFT, fill=tk.X,
                      expand=True)
 
