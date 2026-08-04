@@ -4,8 +4,10 @@ name: CI
 # tag — so a broken commit could sit on main until release day. This is the gate
 # that should have caught it.
 on:
+  # Only main on push. A branch with an open PR would otherwise match both
+  # triggers and run the whole matrix twice for every push.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
