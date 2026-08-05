@@ -209,7 +209,7 @@ class WindowArranger(tk.Toplevel):
         body = tk.Frame(parent, bg=T.BG)
         body.grid(row=1, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=1)
-        body.grid_columnconfigure(1, weight=0, minsize=200)
+        body.grid_columnconfigure(1, weight=0, minsize=T.px(200))
         body.grid_rowconfigure(0, weight=1)
 
         # ── Left: window list ─────────────────────────────────────────────────
@@ -326,10 +326,17 @@ class WindowArranger(tk.Toplevel):
             )
             cb.pack(side=tk.LEFT, padx=(6, 4), pady=4)
 
-            # Thumbnail
-            thumb = tk.Label(row, bg="#000", width=6, height=2)
-            thumb.pack(side=tk.LEFT, padx=(0, 6), pady=3)
-            self._set_thumb(thumb, hwnd, 64, 38)
+            # Thumbnail. The size lives on a Frame because width/height there are
+            # pixels; on the Label they meant 6 characters by 2 lines until an
+            # image was attached, at which point they became 6x2 PIXELS and the
+            # thumbnail collapsed to 10x6 — effectively invisible.
+            tw, th = T.px(64), T.px(38)
+            cell = tk.Frame(row, bg="#000", width=tw, height=th)
+            cell.pack_propagate(False)
+            cell.pack(side=tk.LEFT, padx=(0, T.px(6)), pady=T.px(3))
+            thumb = tk.Label(cell, bg="#000")
+            thumb.pack(fill=tk.BOTH, expand=True)
+            self._set_thumb(thumb, hwnd, tw, th)
 
             # Title
             lbl_fg = T.FG if not checked else T.ACCENT
@@ -395,7 +402,12 @@ class WindowArranger(tk.Toplevel):
             return
         c = self._preview
         c.delete("all")
-        cw, ch = 280, 100
+        # Read the canvas's real size rather than assuming the logical one. The
+        # canvas is created at T.px(280) x T.px(100), so hardcoding 280x100 drew
+        # the whole preview into the top-left corner of a 2.5x larger widget.
+        cw, ch = c.winfo_width(), c.winfo_height()
+        if cw <= 1 or ch <= 1:                 # not mapped yet
+            cw, ch = T.px(280), T.px(100)
 
         n = len(self._selected)
         if n == 0:
@@ -409,7 +421,7 @@ class WindowArranger(tk.Toplevel):
         gap = self._gap_var.get()
 
         # Scale to fit preview
-        margin = 6
+        margin = T.px(6)
         scale = min((cw - margin * 2) / wa_w, (ch - margin * 2) / wa_h)
         ox = (cw - wa_w * scale) / 2
         oy = (ch - wa_h * scale) / 2
@@ -434,12 +446,13 @@ class WindowArranger(tk.Toplevel):
             if i < n:
                 _, title = self._selected[i]
                 c.create_text(sx + sw / 2, sy + sh / 2,
-                              text=title[:10], fill=T.FG,
-                              font=("Segoe UI", 7), width=max(sw - 4, 10))
+                              text=_ellipsize(title, 10), fill=T.FG,
+                              font=("Segoe UI", 7),
+                              width=max(sw - T.px(4), T.px(10)))
 
         # Show overflow count if more windows than columns
         if n > cols:
-            c.create_text(cw // 2, ch - 8,
+            c.create_text(cw // 2, ch - T.px(8),
                           text=f"+{n - cols} more below",
                           fill=T.FG_DIM, font=("Segoe UI", 7))
 

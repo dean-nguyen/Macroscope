@@ -261,7 +261,7 @@ class MacroEditor(tk.Toplevel):
         body = tk.Frame(self, bg=T.BG)
         body.grid(row=2, column=0, sticky="nsew")
         body.grid_columnconfigure(0, weight=1)
-        body.grid_columnconfigure(1, weight=0, minsize=170)
+        body.grid_columnconfigure(1, weight=0, minsize=T.px(170))
         body.grid_rowconfigure(0, weight=1)
         self._build_actions_panel(body)
         self._build_sidebar(body)
@@ -724,7 +724,7 @@ class MacroEditor(tk.Toplevel):
         popup.title(title)
         popup.configure(bg=T.BG)
         popup.resizable(True, True)
-        popup.minsize(360, 300)
+        popup.minsize(T.px(360), T.px(300))
         popup.transient(self)
         T.center_on_parent(popup, self, 460, 520)
         popup.grab_set()
@@ -1356,7 +1356,7 @@ class SubActionsDialog(tk.Toplevel):
         popup.title("Add Action")
         popup.configure(bg=T.BG)
         popup.resizable(True, True)
-        popup.minsize(360, 300)
+        popup.minsize(T.px(360), T.px(300))
         popup.transient(self)
         T.center_on_parent(popup, self, 460, 520)
         popup.grab_set()
@@ -1539,9 +1539,11 @@ class WindowPicker(tk.Toplevel):
             inner = tk.Frame(card, bg=T.BG2)
             inner.pack(fill=tk.X, padx=8, pady=6)
 
-            # Thumbnail
-            thumb_frame = tk.Frame(inner, bg="#000000", width=self.THUMB_W,
-                                   height=self.THUMB_H)
+            # Thumbnail. width/height on a Frame are real pixels, so they follow
+            # the display scale — left at 1x this preview rendered 72x44 logical
+            # px next to 2.5x text.
+            thumb_frame = tk.Frame(inner, bg="#000000", width=T.px(self.THUMB_W),
+                                   height=T.px(self.THUMB_H))
             thumb_frame.pack(side=tk.LEFT, padx=(0, 10))
             thumb_frame.pack_propagate(False)
 
@@ -1555,7 +1557,8 @@ class WindowPicker(tk.Toplevel):
                 w, h = right - left, bottom - top
                 if w > 0 and h > 0:
                     img = ImageGrab.grab(bbox=(cx0, cy0, cx0 + w, cy0 + h), all_screens=True)
-                    img.thumbnail((self.THUMB_W, self.THUMB_H), PILImage.LANCZOS)
+                    img.thumbnail((T.px(self.THUMB_W), T.px(self.THUMB_H)),
+                                  PILImage.LANCZOS)
                     tk_img = ImageTk.PhotoImage(img)
                     thumb_lbl.configure(image=tk_img)
                     self._thumb_images.append(tk_img)

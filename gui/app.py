@@ -268,7 +268,7 @@ class App(tk.Tk):
         if self._log_visible:
             self._log_frame.grid(row=1, column=0, sticky="nsew")
             # Give log drawer some weight so it's visible
-            self._log_frame.master.grid_rowconfigure(1, weight=1, minsize=150)
+            self._log_frame.master.grid_rowconfigure(1, weight=1, minsize=T.px(150))
         else:
             self._log_frame.grid_forget()
             self._log_frame.master.grid_rowconfigure(1, weight=0, minsize=0)
@@ -419,10 +419,10 @@ class App(tk.Tk):
 
         inner = tk.Frame(row, bg=T.BG3)
         inner.pack(fill=tk.X, ipady=6)
-        inner.columnconfigure(0, weight=0, minsize=8)   # status dot
+        inner.columnconfigure(0, weight=0, minsize=T.px(8))   # status dot
         inner.columnconfigure(1, weight=1)               # name + info
         inner.columnconfigure(2, weight=0)               # hotkey badge
-        inner.columnconfigure(3, weight=0, minsize=80)   # buttons
+        inner.columnconfigure(3, weight=0, minsize=T.px(80))   # buttons
 
         # Status dot (green=running, dim=idle)
         dot_color = T.SUCCESS if is_run else T.FG_XDIM

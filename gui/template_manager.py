@@ -150,14 +150,22 @@ class TemplateManager(tk.Toplevel):
         row = tk.Frame(self._inner, bg=T.BG3)
         row.pack(fill=tk.X, padx=T.PAD, pady=4)
 
-        # Thumbnail
+        # Thumbnail. The size is held by a Frame, where width/height really are
+        # pixels. On a Label they mean pixels only while an image is attached and
+        # characters/lines otherwise — so a single unreadable PNG (or PIL being
+        # absent) turned width=96, height=72 into 96 characters by 72 lines and
+        # made the row demand ~2118x3606 px, wrecking the whole dialog.
+        tcell = tk.Frame(row, bg=T.BG2, width=T.px(self.THUMB[0]),
+                         height=T.px(self.THUMB[1]))
+        tcell.pack_propagate(False)
+        tcell.pack(side=tk.LEFT, padx=T.px(8), pady=T.px(8))
+
         thumb = self._thumb_for(info.path)
-        tcell = tk.Label(row, image=thumb, bg=T.BG2, width=self.THUMB[0],
-                         height=self.THUMB[1])
+        inner = tk.Label(tcell, image=thumb, bg=T.BG2)
         if thumb is None:
-            tcell.configure(text="?", fg=T.FG_DIM, font=T.FONT_H2)
-        tcell.image = thumb
-        tcell.pack(side=tk.LEFT, padx=8, pady=8)
+            inner.configure(text="?", fg=T.FG_DIM, font=T.FONT_H2)
+        inner.image = thumb
+        inner.pack(fill=tk.BOTH, expand=True)
 
         # Info column
         col = tk.Frame(row, bg=T.BG3)
@@ -192,7 +200,10 @@ class TemplateManager(tk.Toplevel):
         try:
             with Image.open(path) as img:
                 img = img.convert("RGB")
-                img.thumbnail(self.THUMB)
+                # THUMB is a pixel size, so it has to follow the display scale —
+                # otherwise a 96x72 thumbnail renders at 38x29 logical px beside
+                # 2.5x text.
+                img.thumbnail((T.px(self.THUMB[0]), T.px(self.THUMB[1])))
                 photo = ImageTk.PhotoImage(img)
             self._thumbs.append(photo)
             return photo

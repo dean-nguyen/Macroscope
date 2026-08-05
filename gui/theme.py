@@ -141,28 +141,53 @@ def _scale_geometry_managers() -> None:
             setattr(cls, name, wrapped)
 
 
+_MONITOR_DEFAULTTONEAREST = 2
+
+
+def work_area_at(x: int, y: int, fallback_widget=None):
+    """Usable bounds (l, t, r, b) of the monitor containing the point (x, y).
+
+    "Usable" excludes the taskbar. Falls back to the primary screen only when the
+    monitor cannot be determined.
+    """
+    try:
+        import win32api
+        monitor = win32api.MonitorFromPoint((int(x), int(y)),
+                                            _MONITOR_DEFAULTTONEAREST)
+        return tuple(win32api.GetMonitorInfo(monitor)["Work"])
+    except Exception:
+        if fallback_widget is not None:
+            return (0, 0,
+                    fallback_widget.winfo_screenwidth(),
+                    fallback_widget.winfo_screenheight())
+        return None
+
+
 def center_on_parent(child, parent, width: int, height: int):
     """Position *child* centred over *parent*. Size is in logical pixels.
 
-    The result is clamped to the screen. This matters more than it looks: once
-    sizes scale with DPI, a 1040x720 dialog becomes 2603x1802 on a 250% display,
-    which is nearly the whole screen — centring that on a parent sitting near an
-    edge used to place it at negative coordinates, leaving part of the dialog
-    (including its buttons) off the display.
+    Kept on the monitor the parent is on, and inside that monitor's work area.
+
+    Both halves matter. Scaling makes a 1040x720 dialog 2603x1802 on a 250%
+    display — nearly a whole screen — so centring it on a parent near an edge
+    would otherwise land at negative coordinates and take the dialog's buttons off
+    the display. But clamping against winfo_screenwidth/height is wrong too: those
+    report the PRIMARY monitor only, so on a multi-monitor desktop a dialog
+    belonging to a window on the second screen gets yanked across to the first
+    (measured: 2888 px away). The bounds have to come from the parent's own
+    monitor, which is what picker.py and arranger.py already do.
     """
     w, h = px(width), px(height)
-    try:
-        screen_w, screen_h = child.winfo_screenwidth(), child.winfo_screenheight()
-    except Exception:
-        screen_w = screen_h = 0
 
     cx = parent.winfo_x() + parent.winfo_width()  // 2
     cy = parent.winfo_y() + parent.winfo_height() // 2
     x, y = cx - w // 2, cy - h // 2
 
-    if screen_w and screen_h:
-        w, h = min(w, screen_w), min(h, screen_h)
-        x = max(0, min(x, screen_w - w))
-        y = max(0, min(y, screen_h - h))
+    area = work_area_at(cx, cy, fallback_widget=child)
+    if area:
+        left, top, right, bottom = area
+        w, h = min(w, right - left), min(h, bottom - top)
+        x = max(left, min(x, right - w))
+        y = max(top, min(y, bottom - h))
 
     child.geometry(f"{w}x{h}+{x}+{y}")
