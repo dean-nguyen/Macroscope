@@ -79,6 +79,14 @@ _INVALIDATES_FRAME = frozenset({
     "key", "type", "wait", "pixel_wait",
 })
 
+# Action types whose handler resolves xp/yp through _coords. Anything outside this
+# set requires pixel x/y, and macro_engine validation enforces that — otherwise a
+# macro using xp/yp on, say, `drag` would validate and then raise KeyError at run
+# time, while `scroll` would silently act at (0, 0).
+ACTIONS_WITH_PROPORTIONS = frozenset({
+    "move", "click", "double_click", "right_click", "scroll",
+})
+
 
 # ── context helpers ────────────────────────────────────────────────────────────
 
@@ -112,8 +120,10 @@ def _coords(a: Dict, ctx: Optional[Dict]):
 
     ``x``/``y`` are pixels. ``xp``/``yp`` are fractions of the target window's
     client area (0.0-1.0), which keeps a macro working when the player runs the
-    game at a different window size — the same guarantee template matching now
-    gives for images. Pixels win if both are given.
+    game at a different window size — the same guarantee template matching gives
+    for images. Pixels win per axis if both are given.
+
+    Only the single-point actions accept these; see ACTIONS_WITH_PROPORTIONS.
     """
     x, y = a.get("x"), a.get("y")
     xp = a.get("xp") if x is None else None      # pixels win, per axis
@@ -124,9 +134,14 @@ def _coords(a: Dict, ctx: Optional[Dict]):
     cw = (ctx or {}).get("client_w") or 0
     ch = (ctx or {}).get("client_h") or 0
     if not cw or not ch:
-        _log(ctx, "[coords] xp/yp need a target_window with a known client size "
-                  "— falling back to x/y")
-        return x, y
+        # Reaching here means an axis has no pixel value to fall back on — if both
+        # x and y were given, the per-axis precedence above already returned them.
+        # Guessing would click at (0, 0) in background mode, or wherever the cursor
+        # happens to sit in foreground mode: a wrong click with no warning.
+        raise ActionError(
+            "xp/yp need a target_window whose client size could be resolved; "
+            "the window was not found, so there is nothing to take a fraction of"
+        )
 
     if xp is not None:
         x = int(round(float(xp) * cw))
@@ -200,22 +215,24 @@ def _click(a: Dict, ctx) -> None:
 
 
 def _double_click(a: Dict, ctx) -> None:
-    x, y = a.get("x", 0), a.get("y", 0)
+    rx, ry = _coords(a, ctx)
+    x, y = (rx if rx is not None else 0), (ry if ry is not None else 0)
     if _is_bg(ctx):
         bg.post_double_click(_hwnd(ctx), x, y)
     else:
-        if a.get("x") is not None:
+        if rx is not None:
             pyautogui.doubleClick(x + _ox(ctx), y + _oy(ctx))
         else:
             pyautogui.doubleClick()
 
 
 def _right_click(a: Dict, ctx) -> None:
-    x, y = a.get("x", 0), a.get("y", 0)
+    rx, ry = _coords(a, ctx)
+    x, y = (rx if rx is not None else 0), (ry if ry is not None else 0)
     if _is_bg(ctx):
         bg.post_right_click(_hwnd(ctx), x, y)
     else:
-        if a.get("x") is not None:
+        if rx is not None:
             pyautogui.rightClick(x + _ox(ctx), y + _oy(ctx))
         else:
             pyautogui.rightClick()
@@ -240,13 +257,14 @@ def _drag(a: Dict, ctx) -> None:
 
 
 def _scroll(a: Dict, ctx) -> None:
-    x, y = a.get("x", 0), a.get("y", 0)
+    rx, ry = _coords(a, ctx)
+    x, y = (rx if rx is not None else 0), (ry if ry is not None else 0)
     amount = a.get("amount", 3)
     if _is_bg(ctx):
         bg.post_scroll(_hwnd(ctx), x, y, amount)
     else:
         ox, oy = _ox(ctx), _oy(ctx)
-        if a.get("x") is not None:
+        if rx is not None:
             pyautogui.scroll(amount, x=x + ox, y=y + oy)
         else:
             pyautogui.scroll(amount)

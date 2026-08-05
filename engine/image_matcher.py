@@ -15,6 +15,7 @@ Coordinate spaces
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -57,54 +58,78 @@ _MIN_NEEDLE_STD = 3.0
 
 # Scales tried when a template does not match at its captured size, i.e. when the
 # game runs at a different window size than the one the template was captured at.
-_SCALE_LADDER = (0.5, 0.6, 0.667, 0.75, 0.8, 0.9, 1.1, 1.2, 1.25, 1.333, 1.5, 1.667, 2.0)
+#
+# The rungs have to be fine, because template matching is unforgiving about scale:
+# measured on a 2840-wide capture, the true ratio must be hit within about 1.5% to
+# clear a 0.90 threshold. A hand-written ladder with 10% gaps missed most real
+# window sizes — at a 1920-wide window (true ratio 0.676) the nearest rung 0.667
+# scored 0.908 and 0.700 scored 0.804, where 0.676 scores 1.000. The old floor of
+# 0.5 also excluded 1280x720, which needs 0.451.
+#
+# A sweep is affordable at this density because a rung at the wrong scale is
+# rejected by the coarse pass for a fraction of a full match, and sweeps are
+# rationed to one per _DISCOVERY_INTERVAL per template anyway.
+def _build_scale_ladder(low: float = 0.4, high: float = 2.5,
+                        step: float = 1.025) -> Tuple[float, ...]:
+    rungs, value = [], low
+    while value <= high:
+        rungs.append(round(value, 4))
+        value *= step
+    # Search outward from 1.0: the common case is a window near the captured size.
+    return tuple(sorted(rungs, key=lambda s: abs(s - 1.0)))
+
+
+_SCALE_LADDER = _build_scale_ladder()
 
 # Walking the ladder costs one matchTemplate per rung, and a polling macro spends
 # most of its ticks matching NOTHING — so sweeping on every miss would multiply
-# the cost of the common case by ~14x. Discovery is therefore rationed: it runs
-# at most once per interval per template, at most a few times, and stops for good
-# once the window's scale is known.
-_DISCOVERY_INTERVAL = 15.0   # seconds between sweeps for the same template
-_DISCOVERY_ATTEMPTS = 3      # give up after this many fruitless sweeps
+# the cost of the common case. Discovery is rationed by TIME only, and never
+# switched off: a macro is normally started before the element it waits for is on
+# screen, so any attempt budget gets spent while the element is legitimately
+# absent, and the template can then never be found again for the life of the
+# process. Rationing by time bounds the cost without ever giving up.
+_DISCOVERY_INTERVAL = 20.0   # seconds between ladder sweeps for the same template
 
 # (resolved template path, haystack w, haystack h) -> scale that matched
 _scale_cache: dict = {}
-# (haystack w, haystack h) -> scale that worked for ANY template at this window
-# size. A pack is captured at one resolution, so the first template to resolve
-# its scale answers for all the others.
+# (haystack w, haystack h) -> a scale that worked for SOME template at this window
+# size. Used only as a first guess in _scale_order: a pack is usually captured at
+# one resolution, so one template's answer is a good hint for the others. It must
+# never gate discovery — templates in a pack can come from different sessions at
+# different window sizes, and one of them answering would otherwise permanently
+# strand all the rest.
 _window_scale: dict = {}
-_sweep_state: dict = {}      # key -> [attempts, last attempt time]
+_sweep_state: dict = {}      # key -> monotonic time of the last sweep
+
+# Guards the caches above: several macros can match concurrently (run_folder).
+_scale_lock = threading.Lock()
 
 
 def clear_scale_cache() -> None:
     """Forget discovered template scales (used by tests and on window resize)."""
-    _scale_cache.clear()
-    _window_scale.clear()
-    _sweep_state.clear()
+    with _scale_lock:
+        _scale_cache.clear()
+        _window_scale.clear()
+        _sweep_state.clear()
 
 
 def _may_sweep(key: tuple) -> bool:
     """Whether to spend a full ladder sweep on this template right now."""
-    if key[1:] in _window_scale:
-        return False                      # window scale already known
-    attempts, last = _sweep_state.get(key, (0, 0.0))
-    if attempts >= _DISCOVERY_ATTEMPTS:
-        return False
-    return (time.monotonic() - last) >= _DISCOVERY_INTERVAL
+    with _scale_lock:
+        last = _sweep_state.get(key, 0.0)
+        return (time.monotonic() - last) >= _DISCOVERY_INTERVAL
 
 
 def _note_sweep(key: tuple) -> None:
-    attempts, _ = _sweep_state.get(key, (0, 0.0))
-    _sweep_state[key] = (attempts + 1, time.monotonic())
+    with _scale_lock:
+        _sweep_state[key] = time.monotonic()
 
 
 def _record_scale(key: tuple, scale: float) -> None:
-    _scale_cache[key] = scale
-    # Only a real discovery generalises to the whole window. A plain 1.0 match
-    # must not populate this, or one resolution-independent element could block
-    # scale discovery for every other template at that window size.
-    if scale != 1.0:
-        _window_scale.setdefault(key[1:], scale)
+    with _scale_lock:
+        _scale_cache[key] = scale
+        if scale != 1.0:
+            _window_scale[key[1:]] = scale
 
 
 # ── per-tick frame sharing ────────────────────────────────────────────────────
@@ -115,33 +140,48 @@ def _record_scale(key: tuple, scale: float) -> None:
 # and more correct: all checks in one iteration now reason about the *same*
 # screen instead of racing a UI that may change between them.
 
-_frame_scope: dict = {"depth": 0, "frames": {}, "coarse": {}}
+# The scope is per-THREAD. Each macro runs on its own thread and several can run
+# at once (run_folder), so a shared depth counter would never return to zero while
+# any macro was looping — the frames would stop being cleared and every macro
+# would keep polling one frozen screenshot. A shared counter is also a non-atomic
+# read-modify-write, which drifts upward under contention and never recovers.
+_frame_state = threading.local()
+
+
+def _scope() -> dict:
+    scope = getattr(_frame_state, "scope", None)
+    if scope is None:
+        scope = _frame_state.scope = {"depth": 0, "frames": {}, "coarse": {}}
+    return scope
 
 
 def begin_frame_scope() -> None:
     """Start reusing one capture for every match until the scope ends."""
-    _frame_scope["depth"] += 1
+    _scope()["depth"] += 1
 
 
 def end_frame_scope() -> None:
-    _frame_scope["depth"] = max(0, _frame_scope["depth"] - 1)
-    if _frame_scope["depth"] == 0:
-        _frame_scope["frames"].clear()
-        _frame_scope["coarse"].clear()
+    scope = _scope()
+    scope["depth"] = max(0, scope["depth"] - 1)
+    if scope["depth"] == 0:
+        scope["frames"].clear()
+        scope["coarse"].clear()
 
 
 def invalidate_frame_scope() -> None:
     """Drop the shared capture — for pollers that must see a fresh screen."""
-    _frame_scope["frames"].clear()
-    _frame_scope["coarse"].clear()
+    scope = _scope()
+    scope["frames"].clear()
+    scope["coarse"].clear()
 
 
 def _grab_haystack(hwnd: Optional[int],
                    region: Optional[Tuple[int, int, int, int]]) -> Optional[np.ndarray]:
     """Capture the search area, reusing the scope's frame when one is active."""
+    scope = _scope()
     key = ("hwnd", hwnd) if hwnd is not None else ("region", region)
-    if _frame_scope["depth"] > 0 and key in _frame_scope["frames"]:
-        return _frame_scope["frames"][key]
+    if scope["depth"] > 0 and key in scope["frames"]:
+        return scope["frames"][key]
 
     if hwnd is not None:
         frame = _capture_hwnd_cv(hwnd)
@@ -151,8 +191,8 @@ def _grab_haystack(hwnd: Optional[int],
     else:
         frame = _capture_screen_cv()
 
-    if frame is not None and _frame_scope["depth"] > 0:
-        _frame_scope["frames"][key] = frame
+    if frame is not None and scope["depth"] > 0:
+        scope["frames"][key] = frame
     return frame
 
 
@@ -405,8 +445,10 @@ def _scale_order(key: tuple) -> List[float]:
     """Scales worth trying cheaply, best guess first: this template's known
     scale, then whatever scale the window is known to run at, then the size the
     template was captured at."""
+    with _scale_lock:
+        guesses = (_scale_cache.get(key), _window_scale.get(key[1:]), 1.0)
     order = []
-    for candidate in (_scale_cache.get(key), _window_scale.get(key[1:]), 1.0):
+    for candidate in guesses:
         if candidate is not None and candidate not in order:
             order.append(candidate)
     return order
@@ -418,9 +460,10 @@ def _match_scaled(haystack, needle, threshold, key):
 
     The cheap path — the template's known scale, the window's known scale, then
     the captured size — runs first, so a normal tick costs one or two
-    matchTemplate calls. The full ladder only runs when no scale is known yet,
-    and is rationed by _may_sweep so a macro that legitimately matches nothing
-    does not pay for discovery on every tick.
+    matchTemplate calls. The full ladder only runs when none of those hit, and is
+    rationed by time in _may_sweep so a macro that legitimately matches nothing
+    does not pay for discovery on every tick — but is never disabled outright,
+    because "nothing matched yet" is the normal state before an element appears.
     """
     for s in _scale_order(key):
         result = _cv_match(haystack, needle if s == 1.0 else _resize_needle(needle, s),
@@ -475,53 +518,94 @@ def _match_all_scaled(haystack, needle, threshold, key):
 
 # A full-resolution matchTemplate over a 2840x1600 game window costs ~330 ms, and
 # a polling macro spends nearly every tick ruling out templates that are simply
-# not on screen. Matching a downscaled copy first costs a fraction of that and is
-# plenty to reject, so full resolution is only paid when a match looks plausible.
-_COARSE_TARGET_W = 720    # downscale the haystack to about this width to triage
-_COARSE_MIN_NEEDLE = 12   # below this the shrunken needle is too small to judge
+# not on screen. Matching a downscaled copy first is far cheaper and enough to
+# reject, so full resolution is only paid when a match looks plausible.
+#
+# The reduction must be an EXACT, grid-aligned halving. That is not a detail — it
+# decides whether the triage is safe at all. Measured on a 2840x1600 haystack with
+# needles that are exact crops (so a full match scores 1.0000), worst-case score
+# loss across needle content from 1px stripes to smooth gradients:
+#
+#     scale to 720px wide (ratio 0.2535, misaligned)   loss up to 0.3780
+#     scale to 710px wide (ratio 0.2500, aligned)      loss 0.0000
+#     one halving  (0.5x,  aligned)                    loss 0.0000
+#     two halvings (0.25x, aligned)                    loss 0.0000
+#     three halvings (0.125x)                          loss up to 0.2904
+#
+# At a misaligned ratio the needle and the haystack are resampled onto different
+# pixel grids, so high-frequency content decorrelates instead of merely softening.
+# Three halvings fail for the same reason: a 260x120 needle reaches 65x30, and 65
+# is odd, so the next halving cannot stay aligned. Hence the loop below halves
+# only while every dimension involved is still even.
+_COARSE_MAX_HALVINGS = 2
+_COARSE_MIN_NEEDLE = 24   # a needle smaller than this after halving says too little
 
-# Measured on a live 2840x1600 Onmyoji window: shrinking to 720px wide costs a
-# template that IS on screen about 0.03 of raw correlation (0.924 -> 0.893),
-# while templates that are absent stay at 0.27-0.53. 0.05 in remapped score
-# (=0.10 raw) is therefore several times the observed loss, yet still tight
-# enough to reject every non-match — which is what makes the triage pay.
-_COARSE_SLACK = 0.05
+# Worst loss measured for aligned halving was 0.0022 (a re-captured button with a
+# brightness shift). 0.08 is many times that, and still far above where absent
+# needles sit — they scored 0.508-0.594, so the veto floor of 0.82 rejects all of
+# them. Both properties were required: safe AND actually useful.
+_COARSE_SLACK = 0.08
 
 
-def _coarse_haystack(haystack: np.ndarray, factor: float) -> np.ndarray:
-    """Downscaled copy of the haystack, shared by every template in a frame scope
-    (all checks in one macro iteration shrink the very same screenshot)."""
-    cache = _frame_scope["coarse"]
-    key = (id(haystack), haystack.shape)
-    small = cache.get(key)
-    if small is None:
-        small = cv2.resize(haystack,
-                           (int(haystack.shape[1] * factor), int(haystack.shape[0] * factor)),
-                           interpolation=cv2.INTER_AREA)
-        if _frame_scope["depth"] > 0:
-            cache[key] = small
+def _coarse_halvings(haystack: np.ndarray, needle: np.ndarray) -> int:
+    """How many times both images can be halved while staying grid-aligned."""
+    hh, hw = haystack.shape[:2]
+    nh, nw = needle.shape[:2]
+    steps = 0
+    while (steps < _COARSE_MAX_HALVINGS
+           and hh % 2 == 0 and hw % 2 == 0
+           and nh % 2 == 0 and nw % 2 == 0
+           and min(nh // 2, nw // 2) >= _COARSE_MIN_NEEDLE):
+        hh, hw, nh, nw = hh // 2, hw // 2, nh // 2, nw // 2
+        steps += 1
+    return steps
+
+
+def _halve(img: np.ndarray, steps: int) -> np.ndarray:
+    for _ in range(steps):
+        img = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2),
+                         interpolation=cv2.INTER_AREA)
+    return img
+
+
+def _coarse_haystack(haystack: np.ndarray, steps: int) -> np.ndarray:
+    """Halved copy of the haystack, shared by every template in a frame scope
+    (all checks in one macro iteration shrink the very same screenshot).
+
+    The cache holds the source array alongside the small one and confirms
+    identity on lookup. Keying on id() alone is not safe: numpy reuses addresses
+    aggressively — eight successive same-shape allocations were observed getting
+    the identical id — so a freed frame's entry could otherwise be served for a
+    completely different, later frame.
+    """
+    scope = _scope()
+    cache = scope["coarse"]
+    key = (id(haystack), haystack.shape, steps)
+    cached = cache.get(key)
+    if cached is not None and cached[0] is haystack:
+        return cached[1]
+
+    small = _halve(haystack, steps)
+    if scope["depth"] > 0:
+        cache[key] = (haystack, small)
     return small
 
 
 def _coarse_allows(haystack: np.ndarray, needle: np.ndarray, threshold: float) -> bool:
     """Cheap veto: is a full-resolution match worth paying for at all?
 
-    Conservative by design — it only answers "definitely not there", with slack
-    so that shrink-induced score loss can never reject a real match.
+    Conservative by design — it only answers "definitely not there", and skips
+    itself entirely whenever the reduction could not stay grid-aligned.
     """
-    sh, sw = haystack.shape[:2]
-    if sw <= _COARSE_TARGET_W:
+    steps = _coarse_halvings(haystack, needle)
+    if steps == 0:
         return True
 
-    f = _COARSE_TARGET_W / float(sw)
-    nh, nw = max(1, int(needle.shape[0] * f)), max(1, int(needle.shape[1] * f))
-    if min(nh, nw) < _COARSE_MIN_NEEDLE:
+    small_hay = _coarse_haystack(haystack, steps)
+    small_needle = _halve(needle, steps)
+    if (small_needle.shape[0] > small_hay.shape[0]
+            or small_needle.shape[1] > small_hay.shape[1]):
         return True
-
-    small_hay = _coarse_haystack(haystack, f)
-    if nh > small_hay.shape[0] or nw > small_hay.shape[1]:
-        return True
-    small_needle = cv2.resize(needle, (nw, nh), interpolation=cv2.INTER_AREA)
 
     result = cv2.matchTemplate(small_hay, small_needle, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, _ = cv2.minMaxLoc(result)
@@ -581,6 +665,15 @@ def _cv_match_all(
     sh, sw = haystack.shape[:2]
 
     if th > sh or tw > sw:
+        return []
+
+    # Same two guards as _cv_match, so find_all_and_click cannot report a template
+    # that image_check calls absent on the very same frame, and a flat needle
+    # cannot report matches everywhere.
+    if float(needle.std()) < _MIN_NEEDLE_STD:
+        return []
+
+    if not _coarse_allows(haystack, needle, threshold):
         return []
 
     result = cv2.matchTemplate(haystack, needle, cv2.TM_CCOEFF_NORMED)

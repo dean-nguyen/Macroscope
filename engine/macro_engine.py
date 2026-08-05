@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from engine.action_runner import run_action, ActionError
+from engine.action_runner import ACTIONS_WITH_PROPORTIONS, run_action, ActionError
 from engine.entitlements import (
     LockedFeatureError,
     Tier,
@@ -506,8 +506,19 @@ class MacroEngine:
         """
         try:
             from engine import template_store as ts
-            refs = {ts.basename_of(r) for r in ts.iter_refs(macro.get("actions", []))}
-            missing = sorted(n for n in refs if not (TEMPLATES_DIR / n).exists())
+            from engine.paths import data_root
+
+            # Resolve exactly the way image_matcher._load_needle does, or this
+            # reports a nested ref like "templates/onmyoji/foo.png" as missing
+            # when the file is there (and vice versa).
+            def _exists(ref: str) -> bool:
+                path = Path(ref)
+                if not path.is_absolute():
+                    path = data_root() / path
+                return path.exists()
+
+            refs = {r for r in ts.iter_refs(macro.get("actions", []))}
+            missing = sorted(ts.basename_of(r) for r in refs if not _exists(r))
             if missing:
                 self._log(
                     f"[templates missing] {len(missing)} of {len(refs)} not captured "
@@ -684,12 +695,20 @@ def _validate_actions(actions: List[Dict]) -> None:
             raise ValueError(f"Action[{i}] unknown type '{t}'")
         for field in _REQUIRED_ACTION_FIELDS[t]:
             # x/y may be given proportionally instead (xp/yp = fraction of the
-            # target window's client area), which survives a window resize.
-            if field in ("x", "y") and f"{field}p" in action:
+            # target window's client area), which survives a window resize — but
+            # only for the actions whose handler actually resolves them. Waiving
+            # the requirement more widely let a macro validate and then fail at
+            # run time (KeyError on drag/pixel_check) or act at (0, 0) in silence.
+            if (field in ("x", "y") and f"{field}p" in action
+                    and t in ACTIONS_WITH_PROPORTIONS):
                 continue
             if field not in action:
+                extra = ""
+                if f"{field}p" in action:
+                    extra = (f" — '{field}p' is only supported on "
+                             f"{', '.join(sorted(ACTIONS_WITH_PROPORTIONS))}")
                 raise ValueError(
-                    f"Action[{i}] type='{t}' missing required field '{field}'"
+                    f"Action[{i}] type='{t}' missing required field '{field}'{extra}"
                 )
         # recurse into branch actions
         for branch in ("on_match", "on_no_match", "on_found", "on_not_found"):

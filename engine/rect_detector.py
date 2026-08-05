@@ -67,11 +67,14 @@ def find_rectangles(
 # ── capture ──────────────────────────────────────────────────────────────────
 
 def _capture(hwnd: Optional[int]) -> Optional[np.ndarray]:
-    """Capture image as BGR uint8 numpy array (OpenCV convention)."""
-    from engine.image_matcher import _capture_hwnd_cv, _capture_screen_cv
-    if hwnd is not None:
-        return _capture_hwnd_cv(hwnd)
-    return _capture_screen_cv()
+    """Capture image as BGR uint8 numpy array (OpenCV convention).
+
+    Goes through image_matcher's frame scope so rect detection shares the one
+    capture taken for this macro iteration. Capturing separately would have made
+    it judge a different screen than the image checks either side of it.
+    """
+    from engine.image_matcher import _grab_haystack
+    return _grab_haystack(hwnd, None)
 
 
 # ── detection ────────────────────────────────────────────────────────────────
