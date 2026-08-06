@@ -51,8 +51,17 @@ def _ui_button(label="Ready", w=260, h=120):
     return btn
 
 
-def _canvas_with(button, at=(300, 400)):
-    """Paste *button* into a UI-like canvas at (y, x); returns (haystack, centre)."""
+def _canvas_with(button, at=(301, 403)):
+    """Paste *button* into a UI-like canvas at (y, x); returns (haystack, centre).
+
+    The default position is deliberately NOT a multiple of 4. An earlier attempt at
+    a downscaling pre-filter measured a score loss of 0.0000 and was shipped on that
+    basis — but every measurement had pasted the element at (700, 1200), and both
+    coordinates happen to be divisible by 4. Repeating it one pixel across showed
+    losses up to 0.37, because the element's position decides whether the two
+    images resample onto the same grid, and an app puts its buttons where it likes.
+    Aligned coordinates in a fixture hide exactly that class of bug.
+    """
     hay = _ui_canvas()
     y, x = at
     bh, bw = button.shape[:2]
@@ -134,6 +143,58 @@ def test_matches_needle_captured_at_a_different_window_size(factor):
         f"found at ({cx},{cy}), expected near {centre}"
 
 
+@pytest.mark.parametrize("offset", [(300, 400), (301, 401), (302, 403), (303, 402)])
+def test_scale_search_does_not_depend_on_pixel_alignment(offset):
+    """Finding a rescaled template must not depend on where it happens to sit.
+
+    This is the guard against re-introducing a downscaling shortcut. Any approach
+    that shrinks both images before comparing only works when the element's
+    position aligns with the sampling grid; measured, the same button lost 0.0000
+    at a multiple-of-4 offset and 0.1181 one pixel over.
+    """
+    import cv2
+
+    im.clear_scale_cache()
+    button = _ui_button()
+    haystack, centre = _canvas_with(button, at=offset)
+    stored = cv2.resize(button, (int(button.shape[1] * 0.8), int(button.shape[0] * 0.8)),
+                        interpolation=cv2.INTER_AREA)
+
+    key = (f"offset-{offset}", haystack.shape[1], haystack.shape[0])
+    result = im._match_scaled(haystack, stored, 0.85, key)
+    assert result is not None, f"not found with the element at {offset}"
+    cx, cy, _ = result
+    assert abs(cx - centre[0]) < 12 and abs(cy - centre[1]) < 12
+
+
+def test_discovery_costs_a_bounded_number_of_matches():
+    """The search must not be a fine ladder walked one full match at a time.
+
+    A single ladder fine enough for matching needs ~75 rungs at ~284 ms each on a
+    real game window — a 19-second stall per template, which is what the two-stage
+    search replaced.
+    """
+    calls = []
+    real_score_at = im._score_at
+
+    def counting(haystack, needle, scale):
+        calls.append(scale)
+        return real_score_at(haystack, needle, scale)
+
+    im.clear_scale_cache()
+    haystack = _canvas()
+    needle = np.random.default_rng(4).integers(0, 256, (40, 40, 3), dtype=np.uint8)
+    im._score_at = counting
+    try:
+        im._discover_scale(haystack, needle)
+    finally:
+        im._score_at = real_score_at
+
+    assert len(calls) <= 32, f"discovery used {len(calls)} full matches"
+    assert len(im._SCALE_LADDER) <= 32, \
+        f"coarse ladder has {len(im._SCALE_LADDER)} rungs"
+
+
 def test_discovered_scale_is_cached_for_the_window_size():
     import cv2
 
@@ -176,10 +237,32 @@ def test_discovery_is_never_switched_off_permanently():
 
     for _ in range(10):                       # ten fruitless ticks
         im._match_scaled(haystack, absent, 0.98, key)
-        im._sweep_state[key] = 0.0            # pretend the interval elapsed
+        # Pretend the interval elapsed. The ration is held per window size, not
+        # per template, so that is the entry to clear.
+        im._sweep_state[key[1:]] = 0.0
 
     assert im._may_sweep(key) is True, \
         "discovery must still be possible after many fruitless attempts"
+
+
+def test_sweeps_are_rationed_per_window_size_not_per_template():
+    """One search per interval, shared across the pack.
+
+    A search costs ~6.9 s on a real game window, so nine templates each sweeping on
+    their own schedule would spend more time searching than the interval itself. One
+    is enough: whoever resolves the scale records it in _window_scale and the rest
+    try that first for the price of a single match.
+    """
+    im.clear_scale_cache()
+    haystack = _canvas()
+    absent = np.random.default_rng(8).integers(0, 256, (40, 40, 3), dtype=np.uint8)
+    key_a = ("template-a", haystack.shape[1], haystack.shape[0])
+    key_b = ("template-b", haystack.shape[1], haystack.shape[0])
+
+    assert im._may_sweep(key_a) is True
+    im._match_scaled(haystack, absent, 0.98, key_a)     # consumes the slot
+    assert im._may_sweep(key_b) is False, \
+        "a second template must not sweep in the same interval"
 
 
 def test_one_template_scale_does_not_strand_the_others():
@@ -199,61 +282,6 @@ def test_one_template_scale_does_not_strand_the_others():
 
     assert im._may_sweep(key_b) is True, \
         "another template must still be allowed to discover its own scale"
-
-
-# ── coarse triage ─────────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize("content", ["stripes", "noise", "button"])
-def test_coarse_pass_never_vetoes_a_real_match(content):
-    """The triage must only ever say "definitely not there".
-
-    It downscales before matching, and at a ratio that is not grid-aligned the
-    needle and haystack land on different pixel grids, so high-frequency content
-    decorrelates rather than softening — losses of 0.38 were measured that way,
-    against a slack of 0.05, silently rejecting true matches.
-    """
-    import cv2
-
-    if content == "stripes":
-        patch = np.zeros((120, 260, 3), np.uint8)
-        patch[:, ::3] = 255
-    elif content == "noise":
-        patch = np.random.default_rng(3).integers(0, 256, (120, 260, 3), dtype=np.uint8)
-    else:
-        patch = _ui_button()
-
-    haystack, _ = _canvas_with(patch)
-    full = cv2.matchTemplate(haystack, patch, cv2.TM_CCOEFF_NORMED)
-    full_score = (cv2.minMaxLoc(full)[1] + 1) / 2
-    assert full_score >= 0.95, "sanity: an exact crop must match at full resolution"
-
-    assert im._coarse_allows(haystack, patch, 0.90), \
-        f"{content}: triage vetoed a template that scores {full_score:.4f}"
-    assert im._cv_match(haystack, patch, 0.90) is not None
-
-
-def test_coarse_pass_only_halves_on_an_aligned_grid():
-    haystack = _ui_canvas()                         # 1280x800
-    assert im._coarse_halvings(haystack, _ui_button()) >= 1
-    # An odd dimension cannot be halved without losing alignment.
-    odd = np.zeros((121, 261, 3), np.uint8)
-    assert im._coarse_halvings(haystack, odd) == 0
-
-
-def test_coarse_cache_cannot_serve_a_stale_frame():
-    """numpy reuses addresses, so id() alone is not a safe cache key."""
-    im.begin_frame_scope()
-    try:
-        first = _ui_canvas()
-        small_first = im._coarse_haystack(first, 1)
-        second = _ui_canvas()
-        second[:] = 0                                # visibly different content
-        small_second = im._coarse_haystack(second, 1)
-        assert float(np.abs(small_second.astype(int)).mean()) < 1.0, \
-            "returned a cached downscale belonging to a different frame"
-        assert small_first is not small_second
-    finally:
-        im.end_frame_scope()
 
 
 # ── frame scope ───────────────────────────────────────────────────────────────
