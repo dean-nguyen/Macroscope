@@ -119,6 +119,29 @@ client area — instead of `x`/`y` pixels, so coordinate-driven macros survive a
 window resize. Requires a resolved `target_window`; `_build_ctx` supplies
 `client_w`/`client_h`. Pixels win if both are given.
 
+### Where this input method works, and where it cannot
+
+Worth knowing before pointing the engine at a new application, because the limit is
+architectural rather than a matter of tuning.
+
+- **Works:** ordinary Win32 and Electron applications, and games that read input
+  through the normal window message queue — turn-based and UI-driven titles, and
+  Android emulators (BlueStacks, Nox, LDPlayer). `background_input.py` reaches these
+  with `PostMessage`, so no real cursor moves and the window can stay covered.
+- **Does not work:** anything reading **raw input** or **DirectInput** directly
+  rather than from the message queue. Posted messages simply never arrive; nothing
+  in this engine can fix that. Foreground mode with real cursor movement
+  (`pyautogui`) is the only fallback, and it takes over the machine.
+- **Do not attempt:** titles with kernel-level anti-cheat (Vanguard, Easy
+  Anti-Cheat, BattlEye) or a client that actively fingerprints synthetic input.
+  Posted input will not beat them, and the attempt gets the *user's* account banned.
+  Action-combat gacha titles are typically in this category.
+
+Capture has a matching split: `wgc_capture.py` (Windows.Graphics.Capture) reads a
+window's own frames and works while it is occluded; the GDI screen-grab fallback
+photographs whatever is on top, so it is only trustworthy for the foreground window.
+See `tools/README.md` — that distinction has bitten twice.
+
 ### Thread safety
 
 - `MacroEngine._lock` guards `_macros`, `_running`, `_stop_flags`.
