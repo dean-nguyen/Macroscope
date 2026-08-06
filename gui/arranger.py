@@ -187,6 +187,41 @@ def tile_rects(monitor: Dict, cols: int, gap: int, count: int) -> List[Tuple[int
     return rects
 
 
+def monitor_dpi_scale(monitor: Dict) -> float:
+    """Scale factor of *monitor*, or 1.0 if it cannot be determined.
+
+    Monitors can run at different scales — this desktop has 240 DPI (2.5x) next to
+    120 DPI (1.25x) — and a window's PHYSICAL size changes when it crosses between
+    them, because apps hold a logical size. That is why the same game window
+    measures 1939px wide on the 1.25x screen and 3878px on the 2.5x one.
+    """
+    try:
+        hmon = ctypes.windll.user32.MonitorFromPoint(
+            ctypes.wintypes.POINT(monitor["x"] + monitor["w"] // 2,
+                                  monitor["y"] + monitor["h"] // 2), 2)
+        dpi_x, dpi_y = ctypes.c_uint(), ctypes.c_uint()
+        ctypes.windll.shcore.GetDpiForMonitor(
+            hmon, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+        return dpi_x.value / 96.0 if dpi_x.value else 1.0
+    except Exception:
+        return 1.0
+
+
+def grid_capacity(monitor: Dict, window_size: Tuple[int, int],
+                  gap: int = 0) -> Tuple[int, int]:
+    """How many columns x rows of *window_size* fit in *monitor*'s work area.
+
+    Used to warn before arranging. A window that enforces its own size cannot be
+    tiled into a smaller cell, so asking for a 2x2 grid of windows that only fit
+    1x1 produces a heap of overlapping windows and looks like a failure.
+    """
+    _, _, wa_w, wa_h = monitor["work"]
+    win_w, win_h = max(1, window_size[0]), max(1, window_size[1])
+    cols = max(0, (wa_w - gap) // (win_w + gap))
+    rows = max(0, (wa_h - gap) // (win_h + gap))
+    return cols, rows
+
+
 def _monitor_index_at(x: int, y: int, monitors: List[Dict]) -> int:
     """Return the index of the monitor containing (x, y), or 0."""
     for i, m in enumerate(monitors):
@@ -606,6 +641,38 @@ class WindowArranger(tk.Toplevel):
 
     # ── Actions ──────────────────────────────────────────────────────────────
 
+    def _capacity_advice(self, mon: Dict, gap: int) -> str:
+        """What the user can actually do about windows that kept their own size.
+
+        Deliberately measured AFTER trying, not before: WS_THICKFRAME is not a
+        reliable predictor. Onmyoji carries that style — is_resizable() reports
+        True — and still snaps straight back to its own size, so a pre-flight check
+        based on the style flag would have skipped the very case this is for.
+        """
+        biggest = (0, 0)
+        for hwnd, _ in self._selected:
+            try:
+                left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            except Exception:
+                continue
+            if (right - left) * (bottom - top) > biggest[0] * biggest[1]:
+                biggest = (right - left, bottom - top)
+        if biggest == (0, 0):
+            return ""
+
+        fit_cols, fit_rows = grid_capacity(mon, biggest, gap)
+        _, _, wa_w, wa_h = mon["work"]
+        scale = monitor_dpi_scale(mon)
+        return (
+            f"\n\nThe largest of them is {biggest[0]}x{biggest[1]} px. "
+            f"{mon['name']} has {wa_w}x{wa_h} usable at {scale:.2f}x scaling, "
+            f"which fits {fit_cols} column(s) x {fit_rows} row(s) at that size.\n\n"
+            f"To tile them properly, lower the app's own resolution — for a game, "
+            f"in its video settings — so one window fits one cell. Note that a "
+            f"window's pixel size also changes with the monitor's scaling, so the "
+            f"same window needs more room on a higher-DPI screen."
+        )
+
     def _select_monitor(self, index: int):
         self._monitor_var.set(index)
         self._monitor_label.set(self._monitors[index]["name"])
@@ -667,21 +734,24 @@ class WindowArranger(tk.Toplevel):
         gap = self._gap_var.get()
 
         failures = []
+        size_refused = False
         for (hwnd, title), rect in zip(self._selected,
                                        tile_rects(mon, cols, gap, n)):
             reason = _place_window(hwnd, *rect, bounds=mon["work"])
             if reason:
                 failures.append(f"• {_ellipsize(title, 40)} — {reason}")
+                size_refused = size_refused or "own size" in reason
 
         if failures:
             # Closing on a silent failure is what made this feel broken: the
             # dialog vanished and nothing had moved, with nothing to go on.
+            advice = self._capacity_advice(mon, gap) if size_refused else ""
             messagebox.showwarning(
-                "Some windows did not move",
-                f"{len(failures)} of {n} could not be placed:\n\n"
+                "Some windows kept their own size",
+                f"{len(failures)} of {n} did not fit the layout:\n\n"
                 + "\n".join(failures[:8])
                 + ("\n…" if len(failures) > 8 else "")
-                + "\n\nThe rest were arranged.",
+                + advice,
                 parent=self)
 
         self.destroy()
