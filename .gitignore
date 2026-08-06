@@ -214,7 +214,13 @@ main.onefile-build/
 
 # Project-specific
 _debug_*.png
-.claude/
+# Ignore the CONTENTS of .claude/, not the directory itself — git cannot re-include
+# anything below an excluded directory, so `.claude/` plus a negation silently does
+# nothing. The shareable parts belong in the repo: an agent definition that exists
+# only on the machine that wrote it is no more use than the notes it replaced.
+.claude/*
+!.claude/agents/
+!.claude/settings.json
 =4.5
 templates/
 macros/
