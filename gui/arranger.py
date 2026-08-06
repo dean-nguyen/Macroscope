@@ -236,6 +236,32 @@ def get_monitor_at(x: int, y: int) -> Dict:
     return mons[_monitor_index_at(x, y, mons)]
 
 
+_SW_SHOWMAXIMIZED = 3
+
+
+def _is_maximised(hwnd: int) -> bool:
+    try:
+        return win32gui.GetWindowPlacement(hwnd)[1] == _SW_SHOWMAXIMIZED
+    except Exception:
+        return False
+
+
+def _wait_until_restored(hwnd: int, timeout: float = 1.5) -> bool:
+    """Leave the maximised/minimised state and wait for Windows to apply it."""
+    import time
+
+    if not (_is_maximised(hwnd) or win32gui.IsIconic(hwnd)):
+        return True
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not (_is_maximised(hwnd) or win32gui.IsIconic(hwnd)):
+            time.sleep(0.05)          # let the resulting resize settle
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def _place_window(hwnd: int, x: int, y: int, w: int, h: int,
                   tolerance: int = 8,
                   bounds: Optional[Tuple[int, int, int, int]] = None) -> Optional[str]:
@@ -251,22 +277,34 @@ def _place_window(hwnd: int, x: int, y: int, w: int, h: int,
     try:
         import time
 
-        # 1. Restore from minimized / maximized
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        time.sleep(0.05)
+        # 1. Restore from minimised / maximised, and WAIT FOR IT. A maximised
+        #    window ignores SetWindowPos completely, and the restore is not
+        #    synchronous — measured, this window needed ~0.4 s to leave the
+        #    maximised state. The old code slept 50 ms and then moved a window
+        #    that was still maximised, so the move was silently dropped and the
+        #    verification below blamed the app for "enforcing its own size".
+        if not _wait_until_restored(hwnd):
+            return "it stayed maximised, so it ignores being moved"
 
-        # 2. Strip WS_MAXIMIZE flag so MoveWindow actually resizes
-        style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-        if style & win32con.WS_MAXIMIZE:
-            win32gui.SetWindowLong(
-                hwnd, win32con.GWL_STYLE, style & ~win32con.WS_MAXIMIZE)
-
-        # 3. Move and resize
-        win32gui.SetWindowPos(
-            hwnd, None, x, y, w, h,
-            win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
-            | win32con.SWP_FRAMECHANGED,
-        )
+        # 2. Move and resize — more than once on purpose. Crossing between
+        #    monitors of different scaling makes Windows re-apply DPI to the
+        #    window AFTER the move, which rescales it: asking for 1280x1380 while
+        #    coming from a 240-DPI screen to a 120-DPI one produced 657x690,
+        #    almost exactly half. Once the window is already on the destination,
+        #    a second pass sticks. Three attempts is plenty and costs nothing
+        #    when the first one is already right.
+        for attempt in range(3):
+            win32gui.SetWindowPos(
+                hwnd, None, x, y, w, h,
+                win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+                | win32con.SWP_FRAMECHANGED,
+            )
+            time.sleep(0.12)
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            if (max(abs(left - x), abs(top - y),
+                    abs((right - left) - w), abs((bottom - top) - h))
+                    <= tolerance):
+                break
     except Exception as exc:
         return f"the move was rejected ({exc})"
 
@@ -280,12 +318,50 @@ def _place_window(hwnd: int, x: int, y: int, w: int, h: int,
                abs(got_w - w), abs(got_h - h)) <= tolerance:
             return None
 
-        # It kept its own size. Position is still ours to control, so at least
-        # keep the window on the monitor the user chose instead of letting it
-        # spill onto the next screen — which is what a game that enforces a 16:9
-        # size does when handed a narrower cell.
+        # The size did not take. Before giving up, try the window's OWN aspect
+        # ratio fitted inside the cell. Many apps — games especially — accept any
+        # size on their aspect and silently rewrite anything else: measured, one
+        # instance answered 1282x900 with 1531x900 and 1600x1000 with 1709x1000,
+        # both ≈1.705 wide, while refusing a portrait cell outright. Fitting its
+        # shape into the cell is a size it will actually take.
+        if got_h > 0 and got_w > 0:
+            aspect = got_w / got_h
+            fit_w, fit_h = (int(h * aspect), h) if w / max(1, h) > aspect else \
+                           (w, int(w / aspect))
+            fit_w, fit_h = max(1, min(fit_w, w)), max(1, min(fit_h, h))
+            if abs(fit_w - got_w) > tolerance or abs(fit_h - got_h) > tolerance:
+                win32gui.SetWindowPos(
+                    hwnd, None, x, y, fit_w, fit_h,
+                    win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE)
+                time.sleep(0.12)
+                left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+                got_w, got_h = right - left, bottom - top
+                # Success for tiling means "inside its cell", not "exactly the
+                # cell". A window that keeps its aspect will land a little short
+                # on one axis, and that is a correct tile, not a failure — it was
+                # being reported as one for being 14px off a derived target.
+                if (got_w <= w + tolerance and got_h <= h + tolerance
+                        and abs(left - x) <= tolerance
+                        and abs(top - y) <= tolerance):
+                    return None      # fitted to its aspect inside the cell
+
+        # Re-read once more before declaring failure: an app can settle its own
+        # geometry a beat after being told, and a window that ended up inside its
+        # cell at the right origin is a correct tile however it got there.
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            got_w, got_h = right - left, bottom - top
+            if (got_w <= w + tolerance and got_h <= h + tolerance
+                    and abs(left - x) <= tolerance and abs(top - y) <= tolerance):
+                return None
+        except Exception:
+            pass
+
+        # Still not compliant. Position is ours even when size is not, so keep the
+        # window on the monitor the user chose rather than letting it spill onto
+        # the next screen.
         nudged = ""
-        if bounds and (abs(got_w - w) > tolerance or abs(got_h - h) > tolerance):
+        if bounds:
             b_left, b_top, b_w, b_h = bounds
             fit_x = max(b_left, min(x, b_left + b_w - got_w))
             fit_y = max(b_top, min(y, b_top + b_h - got_h))
