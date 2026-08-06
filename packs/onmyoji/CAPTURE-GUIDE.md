@@ -77,8 +77,10 @@ macros still run (the log lists what is missing at the start of every run).
 - **Templates now survive a window resize.** The matcher discovers the scale
   factor on its own and caches it, so a template captured at 2840×1600 still
   matches at other sizes. Capturing at your real size is still the sharpest.
-- If a macro clicks too early or grabs the wrong thing, raise its `threshold`
-  (the shipped macros use `0.90` for anything they click).
+- If a macro clicks too early or grabs the wrong thing, raise its `threshold`.
+  These are raw correlation: the shipped macros use `0.80` for anything they click
+  and `0.70` for stop-guards. On a live window a template that is present scores
+  `~0.92` and absent ones reach `~0.47`, so there is room to tighten.
 - If detection misses, re-capture the template slightly larger, with more
   distinctive detail inside the box.
 - These macros repeat the **battle** — open the activity screen first, or add

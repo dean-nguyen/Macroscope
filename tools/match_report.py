@@ -7,17 +7,14 @@ and whether the position is plausible.
     python tools/match_report.py --title Onmyoji
     python tools/match_report.py --title Onmyoji --threshold 0.85 --pattern "onmyoji_*"
 
-Read the numbers with two things in mind:
+Scores are raw TM_CCOEFF_NORMED with anticorrelation floored at 0, so the number
+means what it says. Measured on a live game window: a template that IS on screen
+scores ~0.92, and absent ones reach ~0.47. If everything you own scores in the
+0.40s, nothing is actually matching.
 
-* Scores are remapped. image_matcher._cv_match returns (raw + 1) / 2, so a raw
-  correlation of 0 shows as 0.50 and unrelated content sits near 0.70 — a
-  threshold of 0.80 is looser than it looks. Both forms are printed.
-* When WGC captured the frame, matching subtracts _WGC_THRESHOLD_OFFSET, so the
-  effective floor is lower than the threshold you pass.
-
-Measured on a live 2840x1600 client: a template that IS on screen scored 0.962
-(raw 0.924), while absent ones reached 0.737 (raw 0.473). If everything you own
-scores in the 0.70s, nothing is actually matching.
+One adjustment still applies: when WGC captured the frame, matching subtracts
+_WGC_THRESHOLD_OFFSET to allow for the colour difference against a GDI-sourced
+template, so the effective floor is a little below the threshold you pass.
 """
 
 import ctypes
@@ -55,7 +52,7 @@ def find_window(title_substring: str):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--title", default="Onmyoji")
-    parser.add_argument("--threshold", type=float, default=0.90)
+    parser.add_argument("--threshold", type=float, default=0.80)
     parser.add_argument("--pattern", default="*.png")
     args = parser.parse_args()
 
@@ -81,28 +78,27 @@ def main():
     if not templates:
         sys.exit(f"no templates matching {args.pattern!r} in {TEMPLATES_DIR}")
 
-    print(f"{'template':<36} {'std':>6} {'score':>7} {'raw':>7}  where")
-    print("-" * 78)
+    print(f"{'template':<36} {'std':>6} {'score':>7}  where")
+    print("-" * 70)
     matched = 0
     for path in templates:
         std = float(cv2.imread(str(path)).std())
         try:
             result = im.find_template(f"templates/{path.name}", hwnd=hwnd,
                                       threshold=args.threshold)
-        except im.TemplateUnusable as exc:
-            print(f"{path.name:<36} {std:6.1f} {'—':>7} {'—':>7}  REFUSED: flat/featureless")
+        except im.TemplateUnusable:
+            print(f"{path.name:<36} {std:6.1f} {'—':>7}  REFUSED: flat/featureless")
             continue
         except im.TemplateMissing:
-            print(f"{path.name:<36} {'—':>6} {'—':>7} {'—':>7}  missing on disk")
+            print(f"{path.name:<36} {'—':>6} {'—':>7}  missing on disk")
             continue
 
         if result:
             cx, cy, score = result
             matched += 1
-            print(f"{path.name:<36} {std:6.1f} {score:7.3f} {score * 2 - 1:7.3f}"
-                  f"  ({cx},{cy})")
+            print(f"{path.name:<36} {std:6.1f} {score:7.3f}  ({cx},{cy})")
         else:
-            print(f"{path.name:<36} {std:6.1f} {'-':>7} {'-':>7}  no match")
+            print(f"{path.name:<36} {std:6.1f} {'-':>7}  no match")
 
     print(f"\n{matched}/{len(templates)} matched on the screen that is up right now.")
     print("Only templates whose element is actually visible should match. If one "

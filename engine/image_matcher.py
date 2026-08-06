@@ -56,6 +56,19 @@ class TemplateUnusable(TemplateMissing):
 _MIN_NEEDLE_STD = 3.0
 
 
+def _clamp_score(raw: float) -> float:
+    """Report TM_CCOEFF_NORMED as it is, with anticorrelation floored at 0.
+
+    Scores used to be remapped as (raw + 1) / 2, which squeezed everything usable
+    into [0.5, 1.0]: zero correlation read as 0.50, and unrelated screen content sat
+    around 0.70. A user writing threshold=0.70 believed they were asking for "70%
+    sure" and were in fact asking for "no correlation at all". Measured on a live
+    game window, a template that IS present scores ~0.92 raw and absent ones reach
+    ~0.47 raw, so the raw number separates them clearly and means what it says.
+    """
+    return max(0.0, float(raw))
+
+
 # Scales searched when a template does not match at its captured size, i.e. when
 # the game runs at a different window size than the one it was captured at.
 #
@@ -355,12 +368,23 @@ def _capture_hwnd_cv(hwnd: int) -> Optional[np.ndarray]:
     return None
 
 
-# WGC captures via DirectX compositor produce slightly different pixel values
-# than GDI screen-grab (the source used to create templates).  The systematic
-# brightness/gamma shift reduces TM_CCOEFF_NORMED scores by ~0.08-0.15.
-# This constant compensates so that user-facing thresholds behave consistently
-# regardless of the capture backend.
-_WGC_THRESHOLD_OFFSET = 0.10
+# A template captured through one backend and matched against the other loses some
+# correlation, because WGC reads the DirectX compositor while a screen grab reads
+# GDI. Measured on a live game window by capturing both ways and cross-scoring the
+# same regions:
+#
+#   static UI (bottom bar, right column)   0.037 - 0.046 raw
+#   animated areas (counters, characters)  up to 0.36 raw
+#
+# The animated numbers are not colour: a control run comparing two WGC frames 50 ms
+# apart reproduced most of that drift on its own. A template of an animated region
+# is unreliable whatever the backend, so the allowance is set from the static
+# measurement — 0.08 raw, roughly double the worst honest case.
+#
+# It used to be 0.10 in the old remapped score, i.e. 0.20 raw: four times what is
+# needed, silently loosening every threshold in every macro. That is why absent
+# templates scoring 0.47 raw came close to passing a nominal 0.60 floor.
+_WGC_THRESHOLD_OFFSET = 0.08
 
 
 def _is_wgc_active(hwnd: Optional[int]) -> bool:
@@ -469,7 +493,7 @@ def _score_at(haystack: np.ndarray, needle: np.ndarray, scale: float) -> float:
             or float(scaled.std()) < _MIN_NEEDLE_STD):
         return -1.0
     result = cv2.matchTemplate(haystack, scaled, cv2.TM_CCOEFF_NORMED)
-    return (cv2.minMaxLoc(result)[1] + 1.0) / 2.0
+    return _clamp_score(cv2.minMaxLoc(result)[1])
 
 
 def _best_of(haystack, needle, scales) -> Tuple[Optional[float], float]:
@@ -583,8 +607,7 @@ def _cv_match(
     result = cv2.matchTemplate(haystack, needle, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(result)
 
-    # TM_CCOEFF_NORMED returns scores in [-1, 1]; remap to [0, 1]
-    score = (max_val + 1.0) / 2.0
+    score = _clamp_score(max_val)
 
     if score >= threshold:
         cx = max_loc[0] + tw // 2
@@ -617,14 +640,11 @@ def _cv_match_all(
 
     result = cv2.matchTemplate(haystack, needle, cv2.TM_CCOEFF_NORMED)
 
-    # Remap threshold from [0,1] to [-1,1] for raw score comparison
-    raw_threshold = threshold * 2.0 - 1.0
-
-    locations = np.where(result >= raw_threshold)
+    locations = np.where(result >= threshold)
     matches = []
 
     for pt_y, pt_x in zip(*locations):
-        score = (result[pt_y, pt_x] + 1.0) / 2.0
+        score = _clamp_score(result[pt_y, pt_x])
         cx = pt_x + tw // 2
         cy = pt_y + th // 2
         matches.append((cx, cy, score))

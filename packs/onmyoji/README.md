@@ -29,9 +29,11 @@ Behaviour taken from a live client rather than assumed:
 - **The client takes ~3 s to react** to a menu click and keeps the button drawn
   meanwhile. The macros therefore poll every `2500 ms` and wait after each click,
   instead of the old `800 ms` — a fast poll clicked the same button repeatedly.
-- **Thresholds are `0.90`** for anything clicked. Measured on the live window, a
-  template that is on screen scores `0.962` while absent ones reach `0.737`; the
-  old `0.80`/`0.85` left too little margin and could mis-click.
+- **Thresholds are `0.80`** for anything clicked and `0.70` for stop-guards, where
+  a false stop is the safe direction. These are raw correlation: measured on the
+  live window, a template that is on screen scores `~0.92` while absent ones reach
+  `~0.47`. Scores were previously remapped into `[0.5, 1.0]`, which made every
+  number look far stricter than it was.
 - **Realm Raid needs a target selected first.** The Attack button does not exist
   on the target list, so the macro picks a cell from the 3×3 grid, then attacks.
   (The previous version clicked Attack straight from the list, never found it,

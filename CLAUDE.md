@@ -95,10 +95,21 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   (called by `_execute`) make every image check in one tick share a single
   screenshot, so checks judge the same screen instead of racing a changing UI.
   Anything that sends input, or `image_wait` polling, invalidates it.
-- **Scores are remapped.** `_cv_match` returns `(raw + 1) / 2`, so a threshold of
-  `0.80` means a raw correlation of `0.60`, and unrelated content sits near
-  `0.70`. Keep this in mind when picking thresholds — measured on a live game,
-  a template that is present scores `~0.96` and absent ones reach `~0.74`.
+- **Scores are raw `TM_CCOEFF_NORMED`,** with anticorrelation floored at 0, so a
+  threshold means what it says. Measured on a live game window: a present
+  template scores `~0.92` (an exact crop of the same frame scores `1.0000`), and
+  absent ones reach `~0.47`. The pack uses `0.80` for anything it clicks and
+  `0.70` for stop-guards, where a false stop is the safe direction.
+  Scores used to be remapped as `(raw + 1) / 2`, which squeezed everything usable
+  into `[0.5, 1.0]` — zero correlation read as `0.50` and unrelated content sat
+  near `0.70`, so `threshold=0.70` asked for no correlation at all.
+- **`_WGC_THRESHOLD_OFFSET` allows for cross-backend colour drift** when a
+  GDI-sourced template is matched against a WGC frame. Measured by capturing one
+  window both ways and cross-scoring: static UI costs `0.037-0.046` raw, so the
+  allowance is `0.08`. Do not raise it from an animated region's number — a
+  control comparing two WGC frames 50 ms apart reproduced most of that drift on
+  its own, and comparing captures taken at different instants measures the game
+  animating, not the backends differing.
 
 ### Proportional coordinates
 
