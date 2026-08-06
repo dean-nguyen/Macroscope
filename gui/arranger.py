@@ -1,9 +1,15 @@
 """
 Window Arranger — select windows and tile them in a grid on a chosen monitor.
 
-Uses pywin32 exclusively for window management (no ctypes DWM hacks).
+Window management goes through pywin32, with one exception: detecting a *cloaked*
+window needs DwmGetWindowAttribute, which pywin32 does not expose, so that one
+call is made via ctypes. It earns its place — suspended UWP apps stay "visible"
+with a title and would otherwise be offered for arranging, then ignore every
+request (this is why Settings used to appear in the list twice).
 """
 
+import ctypes
+import ctypes.wintypes
 import tkinter as tk
 from tkinter import messagebox
 from typing import Dict, List, Optional, Tuple
@@ -31,15 +37,73 @@ def _ellipsize(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
+_DWMWA_CLOAKED = 14
+
+
+def _is_cloaked(hwnd: int) -> bool:
+    """True for a window Windows is hiding without marking it invisible.
+
+    Suspended UWP apps stay 'visible' with a title, which is why Settings used to
+    appear twice in the list — one entry was a ghost that ignores every request.
+    """
+    try:
+        cloaked = ctypes.c_int(0)
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            ctypes.wintypes.HWND(hwnd), _DWMWA_CLOAKED,
+            ctypes.byref(cloaked), ctypes.sizeof(cloaked))
+        return cloaked.value != 0
+    except Exception:
+        return False
+
+
+def _is_arrangeable(hwnd: int) -> bool:
+    """Whether *hwnd* is a real top-level app window worth offering to arrange.
+
+    IsWindowVisible plus a non-empty title is far too loose: it also matches the
+    desktop shell ("Program Manager"), the IME host ("Windows Input Experience"),
+    tool windows like PowerToys' overlay, and cloaked UWP ghosts. None of those
+    can be tiled — measured, they lack WS_THICKFRAME entirely — so offering them
+    only lets the user pick something that then silently does nothing.
+    """
+    if not win32gui.IsWindowVisible(hwnd):
+        return False
+    if not win32gui.GetWindowText(hwnd):
+        return False
+    # pywin32 does not wrap GetShellWindow, so this goes through ctypes too.
+    if hwnd == ctypes.windll.user32.GetShellWindow():
+        return False
+    if win32gui.GetWindow(hwnd, win32con.GW_OWNER):
+        return False                      # a dialog owned by another window
+    if _is_cloaked(hwnd):
+        return False
+    try:
+        ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        if ex_style & win32con.WS_EX_TOOLWINDOW:
+            return False
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        if right - left <= 0 or bottom - top <= 0:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def is_resizable(hwnd: int) -> bool:
+    """A window without WS_THICKFRAME will ignore the size half of a placement."""
+    try:
+        return bool(win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+                    & win32con.WS_THICKFRAME)
+    except Exception:
+        return False
+
+
 def _list_windows() -> List[Tuple[int, str]]:
-    """Return [(hwnd, title), …] for visible top-level windows."""
+    """Return [(hwnd, title), …] for windows that can actually be arranged."""
     windows = []
 
     def _cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            title = win32gui.GetWindowText(hwnd)
-            if title:
-                windows.append((hwnd, title))
+        if _is_arrangeable(hwnd):
+            windows.append((hwnd, win32gui.GetWindowText(hwnd)))
 
     win32gui.EnumWindows(_cb, None)
     return sorted(windows, key=lambda x: x[1].lower())
@@ -137,11 +201,16 @@ def get_monitor_at(x: int, y: int) -> Dict:
     return mons[_monitor_index_at(x, y, mons)]
 
 
-def _place_window(hwnd: int, x: int, y: int, w: int, h: int):
-    """
-    Move and resize a window to the target rect.
+def _place_window(hwnd: int, x: int, y: int, w: int, h: int,
+                  tolerance: int = 8) -> Optional[str]:
+    """Move and resize a window to the target rect.
 
-    Steps: restore → remove maximize style → move → repaint.
+    Steps: restore → remove maximize style → move → verify.
+
+    Returns None on success, or a short reason why it did not take. This used to
+    swallow every failure and return nothing, while _apply closed the dialog
+    regardless — so a window that ignored the request looked identical to one that
+    moved, and "Arrange did nothing" had no diagnosis available.
     """
     try:
         import time
@@ -162,8 +231,23 @@ def _place_window(hwnd: int, x: int, y: int, w: int, h: int):
             win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
             | win32con.SWP_FRAMECHANGED,
         )
+    except Exception as exc:
+        return f"the move was rejected ({exc})"
+
+    # 4. Verify. A window can accept the call and still not comply — a minimum
+    # size it enforces, or no WS_THICKFRAME at all.
+    try:
+        time.sleep(0.05)
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        got = (left, top, right - left, bottom - top)
+        off = [abs(a - b) for a, b in zip((x, y, w, h), got)]
+        if max(off) <= tolerance:
+            return None
+        if not is_resizable(hwnd):
+            return f"it cannot be resized (ended up {got[2]}x{got[3]})"
+        return f"it resisted the size (wanted {w}x{h}, got {got[2]}x{got[3]})"
     except Exception:
-        pass
+        return None          # cannot verify; assume it worked rather than nag
 
 
 def _bind_wheel(widget, canvas):
@@ -564,8 +648,22 @@ class WindowArranger(tk.Toplevel):
         cols = max(1, self._cols_var.get())
         gap = self._gap_var.get()
 
-        for hwnd, rect in zip((h for h, _ in self._selected),
-                              tile_rects(mon, cols, gap, n)):
-            _place_window(hwnd, *rect)
+        failures = []
+        for (hwnd, title), rect in zip(self._selected,
+                                       tile_rects(mon, cols, gap, n)):
+            reason = _place_window(hwnd, *rect)
+            if reason:
+                failures.append(f"• {_ellipsize(title, 40)} — {reason}")
+
+        if failures:
+            # Closing on a silent failure is what made this feel broken: the
+            # dialog vanished and nothing had moved, with nothing to go on.
+            messagebox.showwarning(
+                "Some windows did not move",
+                f"{len(failures)} of {n} could not be placed:\n\n"
+                + "\n".join(failures[:8])
+                + ("\n…" if len(failures) > 8 else "")
+                + "\n\nThe rest were arranged.",
+                parent=self)
 
         self.destroy()
