@@ -202,7 +202,8 @@ def get_monitor_at(x: int, y: int) -> Dict:
 
 
 def _place_window(hwnd: int, x: int, y: int, w: int, h: int,
-                  tolerance: int = 8) -> Optional[str]:
+                  tolerance: int = 8,
+                  bounds: Optional[Tuple[int, int, int, int]] = None) -> Optional[str]:
     """Move and resize a window to the target rect.
 
     Steps: restore → remove maximize style → move → verify.
@@ -235,17 +236,34 @@ def _place_window(hwnd: int, x: int, y: int, w: int, h: int,
         return f"the move was rejected ({exc})"
 
     # 4. Verify. A window can accept the call and still not comply — a minimum
-    # size it enforces, or no WS_THICKFRAME at all.
+    # size it enforces, a locked aspect ratio, or no WS_THICKFRAME at all.
     try:
         time.sleep(0.05)
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        got = (left, top, right - left, bottom - top)
-        off = [abs(a - b) for a, b in zip((x, y, w, h), got)]
-        if max(off) <= tolerance:
+        got_w, got_h = right - left, bottom - top
+        if max(abs(left - x), abs(top - y),
+               abs(got_w - w), abs(got_h - h)) <= tolerance:
             return None
+
+        # It kept its own size. Position is still ours to control, so at least
+        # keep the window on the monitor the user chose instead of letting it
+        # spill onto the next screen — which is what a game that enforces a 16:9
+        # size does when handed a narrower cell.
+        nudged = ""
+        if bounds and (abs(got_w - w) > tolerance or abs(got_h - h) > tolerance):
+            b_left, b_top, b_w, b_h = bounds
+            fit_x = max(b_left, min(x, b_left + b_w - got_w))
+            fit_y = max(b_top, min(y, b_top + b_h - got_h))
+            if (fit_x, fit_y) != (left, top):
+                win32gui.SetWindowPos(
+                    hwnd, None, fit_x, fit_y, got_w, got_h,
+                    win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE)
+                nudged = ", moved back onto the monitor"
+
         if not is_resizable(hwnd):
-            return f"it cannot be resized (ended up {got[2]}x{got[3]})"
-        return f"it resisted the size (wanted {w}x{h}, got {got[2]}x{got[3]})"
+            return f"it cannot be resized, so it stayed {got_w}x{got_h}{nudged}"
+        return (f"it enforces its own size — wanted {w}x{h}, "
+                f"got {got_w}x{got_h}{nudged}")
     except Exception:
         return None          # cannot verify; assume it worked rather than nag
 
@@ -651,7 +669,7 @@ class WindowArranger(tk.Toplevel):
         failures = []
         for (hwnd, title), rect in zip(self._selected,
                                        tile_rects(mon, cols, gap, n)):
-            reason = _place_window(hwnd, *rect)
+            reason = _place_window(hwnd, *rect, bounds=mon["work"])
             if reason:
                 failures.append(f"• {_ellipsize(title, 40)} — {reason}")
 
