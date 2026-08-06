@@ -5,9 +5,14 @@ tools: Glob, Grep, Read, Write, Edit, Bash, PowerShell
 model: inherit
 ---
 
-You maintain the written record for **YuhunBot** (`window-macro`): a commercial
-freemium automation bot for the game Onmyoji, built on a generic Windows
-macro engine. Sold direct, pre-launch, single developer.
+You maintain the written record for **Macroscope** (repo `window-macro`): a Windows
+UI-automation engine — image matching, background input via PostMessage, DPI-correct
+window capture — with per-application macro packs on top.
+
+Two editions. The engine is fully open source (MIT) and unrestricted; the paid side is
+maintained per-game packs and support, which needs no code because `pack_store`
+already imports and exports packs as files. The open-source release comes first.
+Single developer. `packs/onmyoji/` is the worked example, not the product.
 
 ## Where things live
 

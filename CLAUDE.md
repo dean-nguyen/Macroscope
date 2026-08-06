@@ -44,10 +44,10 @@ gui/
 
 ### User data paths
 
-User-created data (macros, template images) is stored under `%APPDATA%/WindowMacroBotData/`:
+User-created data (macros, template images) is stored under `%APPDATA%/Macroscope/`:
 
 ```
-%APPDATA%/WindowMacroBotData/
+%APPDATA%/Macroscope/
 ├── macros/          Macro JSON files
 └── templates/       Template images for image matching
 ```
@@ -85,12 +85,21 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   turns it into a normal no-match and logs it once, and `MacroEngine._execute`
   lists every missing template at the start of a run. Before this, one missing
   file aborted the whole macro — the default state of a freshly installed pack.
-- **Matching is scale-aware.** A template captured at one window size still
-  matches at another: the known scale, then the window's discovered scale, then
-  1.0 are tried cheaply, and only if all miss is `_SCALE_LADDER` swept. Sweeps
-  are rationed by `_may_sweep` (a polling macro matches nothing most ticks, and
-  sweeping every miss would cost ~14x). Discovered scales are cached per
-  template and per window size.
+- **Matching is scale-aware.** A template captured at one window size still matches
+  at another. The cheap path runs first — this template's known scale, then the
+  window's known scale, then 1.0 — so a normal tick costs one or two matches. Only
+  if all miss does `_discover_scale` run a **two-stage search**: a coarse ladder
+  scanning for the best *score* (not the first rung over a threshold, which is what
+  lets it be coarse), then a fine pass around the winner. ~21 matches for ~1.5%
+  precision, where one ladder fine enough would need ~75 and stall 19 s. Searches
+  are rationed by time **per window size**, not per template, because the answer
+  generalises through `_window_scale`; they are never switched off, since "nothing
+  matched yet" is the normal state before an element appears.
+- **Do not add a downscaling pre-filter.** One was tried and removed. Shrinking both
+  images before comparing only works when the element's position aligns with the
+  sampling grid: the same button lost 0.0000 at a multiple-of-4 offset and 0.1181 one
+  pixel over, so real matches were being vetoed silently. An app puts its buttons
+  where it likes, so no slack is both safe and useful.
 - **One capture per macro iteration.** `begin_frame_scope`/`end_frame_scope`
   (called by `_execute`) make every image check in one tick share a single
   screenshot, so checks judge the same screen instead of racing a changing UI.

@@ -35,7 +35,7 @@ class App(tk.Tk):
         # Must run before any widget is laid out: measures the display scale and
         # makes pixel padding follow the same DPI Tk already uses for fonts.
         T.init_scaling(self)
-        self.title("Window Macro Bot")
+        self.title("Macroscope")
         self.geometry(f"{T.px(1060)}x{T.px(680)}")
         self.minsize(T.px(760), T.px(500))
         self.configure(bg=T.BG)
@@ -78,7 +78,7 @@ class App(tk.Tk):
 
         # Left: app title
         tk.Label(
-            inner, text="Macro Bot",
+            inner, text="Macroscope",
             font=T.FONT_TITLE, bg=T.BG2, fg=T.FG,
         ).pack(side=tk.LEFT, pady=12)
 
@@ -196,7 +196,7 @@ class App(tk.Tk):
         welcome.grid(row=0, column=0, sticky="nsew")
         center = tk.Frame(welcome, bg=T.BG)
         center.place(relx=0.5, rely=0.45, anchor="center")
-        tk.Label(center, text="Macro Bot", font=("Segoe UI", 20, "bold"),
+        tk.Label(center, text="Macroscope", font=("Segoe UI", 20, "bold"),
                  bg=T.BG, fg=T.FG_DIM).pack()
         tk.Label(center, text="Select a macro to run, or create a new one.",
                  font=T.FONT, bg=T.BG, fg=T.FG_XDIM).pack(pady=(4, 16))

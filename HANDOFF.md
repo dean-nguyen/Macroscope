@@ -22,11 +22,12 @@ layered on top. Onmyoji is the example pack it was developed against.
 - Releasing the open-source edition comes first; revenue is a later concern.
 
 This supersedes the freemium plan. The licensing, entitlement and KeyAuth machinery
-was removed on 2026-08-06 — about 1550 lines, plus 33 tests. It is recoverable from
-git history if the split ever moves to paid *features* instead of paid packs.
+was removed on 2026-08-06 — about 1550 lines, plus 33 tests — along with
+`GO-COMMERCIAL.md`, `marketing/` and `legal/`. All of it is recoverable from git
+history if the split ever moves to paid *features* instead of paid packs.
 
-`GO-COMMERCIAL.md`, `marketing/` and `legal/` still describe the old freemium
-product and have not been rewritten. Treat them as historical.
+The one part of that material worth keeping was not commercial at all: **where this
+input method architecturally cannot work.** It now lives in `CLAUDE.md`.
 
 ## Where things live
 
@@ -42,24 +43,16 @@ product and have not been rewritten. Treat them as historical.
 
 ## Remaining work
 
-Code:
+Tracked in `docs/BACKLOG.md`; the two that matter most:
 
-1. Rewrite `README.md` around the engine. For an open-source project the README is
-   the product, and it currently reads as a sales page.
-2. Decide the project name — `YuhunBot` is the old game-specific brand.
-3. Decide whether the Onmyoji pack stays in the public repo or moves to the paid
-   side. It is both the legally sensitive part and the recurring-maintenance part.
-4. Randomised timing and click jitter. There is none: every delay is a fixed
+1. **Randomised timing and click jitter.** There is none — every delay is a fixed
    constant and every click lands on the exact template centre.
-5. Capture-time validation in the UI — score a new template against the screen and
-   against existing templates, so a bad crop is caught when it is made.
+2. **Capture-time validation in the UI.** Score a new template against the screen
+   *and against existing templates*, so a bad crop is caught while it is being made.
+   A plain `OK` button was measured scoring 0.91 against a different button.
 
-Owner:
-
-6. Capture the 9 outstanding Onmyoji templates (Images → Guided capture…).
-   `onmyoji_captcha.png` first: it is the anti-ban guard and is inert without it.
-7. Run the pack against the live game end to end — see
-   `docs/prd/pack-live-validation.md`. Never done; the largest unknown.
+Owner tasks: capture the 9 outstanding Onmyoji templates, and run the pack against
+the live game end to end (`docs/prd/pack-live-validation.md` — never done).
 
 ## Setting up on a new machine
 
@@ -74,7 +67,7 @@ gh auth login                             # if using gh for PRs
 - **No build secrets any more.** There is nothing to configure and no tier to
   unlock; run it from source or build it and everything works.
 - **Captured templates** live next to the code (`templates/`) when running from
-  source, and in `%APPDATA%/WindowMacroBotData/templates/` in a packaged build.
+  source, and in `%APPDATA%/Macroscope/templates/` in a packaged build.
   Either way they are per-machine and do **not** travel with git — re-capture, or
   copy the folder across. `python tools/game_probe.py list <spec>` shows what is
   captured.

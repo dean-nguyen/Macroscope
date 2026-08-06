@@ -1,7 +1,7 @@
 """
 Centralized path resolution for user data and application resources.
 
-User data (macros, templates) lives under %APPDATA%/WindowMacroBotData so the
+User data (macros, templates) lives under %APPDATA%/Macroscope so the
 app works correctly regardless of install location (Program Files, Desktop, etc.).
 
 The application root (where the .exe or main.py lives) is still used for
@@ -18,7 +18,12 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-APP_NAME = "WindowMacroBotData"
+APP_NAME = "Macroscope"
+
+# The folder was called this before the project was renamed. Kept so a packaged
+# install that already has macros and templates in it can be migrated rather than
+# silently orphaned.
+_LEGACY_APP_NAMES = ("WindowMacroBotData",)
 
 
 def app_root() -> Path:
@@ -31,7 +36,7 @@ def app_root() -> Path:
 def data_root() -> Path:
     """Return the user data directory.
 
-    When packaged (.exe): %APPDATA%/WindowMacroBotData — safe regardless of
+    When packaged (.exe): %APPDATA%/Macroscope — safe regardless of
     install location (Program Files, Desktop, etc.).
 
     When running from source: the project root — keeps macros/ and templates/
@@ -62,12 +67,15 @@ def ensure_dirs() -> None:
 
 
 def migrate_legacy_data() -> None:
-    """One-time migration: copy exe-relative macros/ and templates/ to APPDATA.
+    """One-time migration of user data into the current APPDATA location.
 
-    Only runs when the app is frozen (packaged as .exe) and the old
-    exe-relative directories contain data that hasn't been migrated yet.
-    Copies files instead of moving — the old directory is left intact so
-    the user can verify before deleting it manually.
+    Only runs when the app is frozen (packaged as .exe); from source, data_root()
+    is the project directory and none of this applies. Copies rather than moves, so
+    the old location stays intact for the user to check before deleting.
+
+    Two sources: the original exe-relative layout, and the APPDATA folder under the
+    project's previous name. A rename must not orphan someone's captured templates —
+    re-capturing them is exactly the tedious work this tool exists to avoid.
     """
     if not getattr(sys, "frozen", False):
         return
@@ -75,6 +83,17 @@ def migrate_legacy_data() -> None:
     old_root = app_root()
     _migrate_dir(old_root / "macros", MACROS_DIR)
     _migrate_dir(old_root / "templates", TEMPLATES_DIR)
+
+    import os
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return
+    for legacy in _LEGACY_APP_NAMES:
+        legacy_root = Path(appdata) / legacy
+        if legacy_root == data_root() or not legacy_root.exists():
+            continue
+        _migrate_dir(legacy_root / "macros", MACROS_DIR)
+        _migrate_dir(legacy_root / "templates", TEMPLATES_DIR)
 
 
 def seed_starter_macros(pack: str = "onmyoji") -> None:

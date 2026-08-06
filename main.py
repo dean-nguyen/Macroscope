@@ -1,4 +1,4 @@
-"""Entry point for Window Macro Bot."""
+"""Entry point for Macroscope."""
 
 # Enable DPI awareness FIRST — before any other imports.
 # This must happen before tkinter, win32gui, PIL, or any module

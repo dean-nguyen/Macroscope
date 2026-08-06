@@ -1,4 +1,4 @@
-# Onmyoji Automation Pack (YuhunBot)
+# Onmyoji Automation Pack
 
 Macros for the recurring Onmyoji activities. The macro logic is done and was
 checked against a live English Steam client; a working pack still needs the
@@ -56,7 +56,7 @@ Realm Raid's grid uses them.
 
 ## Turn this into a working, sellable pack
 
-1. In YuhunBot, make a folder called **Onmyoji**.
+1. In Macroscope, make a folder called **Onmyoji**.
 2. Drop these `.macro.json` files into your macros folder. Open Onmyoji.
 3. Capture the templates in `CAPTURE-GUIDE.md` — the "capture now" set is enough
    to start; the opportunistic ones can be filled in as you meet them.

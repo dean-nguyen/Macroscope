@@ -39,15 +39,15 @@ jobs:
             --include-module=pywintypes `
             --include-data-dir=packs=packs `
             --output-dir=. `
-            --output-filename=WindowMacroBot.exe `
+            --output-filename=Macroscope.exe `
             --assume-yes-for-downloads `
             main.py
 
       - name: Package release zip
-        run: Compress-Archive -Path main.dist\* -DestinationPath WindowMacroBot-${{ github.ref_name }}.zip
+        run: Compress-Archive -Path main.dist\* -DestinationPath Macroscope-${{ github.ref_name }}.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: WindowMacroBot-${{ github.ref_name }}.zip
+          files: Macroscope-${{ github.ref_name }}.zip
           generate_release_notes: true

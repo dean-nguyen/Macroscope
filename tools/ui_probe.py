@@ -44,7 +44,7 @@ OUT_DIR = ROOT / ".probe"
 
 # name -> (window title to look for, how to build it)
 WINDOWS = {
-    "app":       "Window Macro Bot",
+    "app":       "Macroscope",
     "editor":    "New Macro",
     "wizard":    "Guided Capture",
     "templates": "Template Library",

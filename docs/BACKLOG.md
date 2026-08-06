@@ -50,8 +50,8 @@ For an open-source repository the README is the product.
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| E3.1 | Decide the project name | todo | `YuhunBot` is the old game-specific brand; "Bot" also carries the wrong connotation |
-| E3.2 | Rewrite `README.md` around the engine | blocked on E3.1 | Currently reads as a sales page |
+| E3.1 | Decide the project name | done | **Macroscope**. Repo stays `window-macro` — renaming it would break links for no gain. The old `YuhunBot` was game-specific, and "Bot" carried the wrong connotation |
+| E3.2 | Rewrite `README.md` around the engine | done | Leads with what it does, then the four things a naive image-matching tool gets wrong, each tied to a measurement |
 | E3.3 | Survive a high-DPI display | done | 6 screens verified by capture at 250% |
 | E3.4 | Window Arranger tiles correctly across monitors | done | 8 defects incl. per-monitor DPI and size-locked windows |
 | E3.5 | Scale widget-option `padx`/`pady` (~41 sites) | todo | Inner padding renders at ~1/2.5 of intent. Cosmetic, no clipping |
