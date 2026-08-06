@@ -49,9 +49,6 @@ def data_root() -> Path:
 MACROS_DIR: Path = data_root() / "macros"
 TEMPLATES_DIR: Path = data_root() / "templates"
 
-# License activation cache (HMAC-signed). Lives alongside user data so it
-# survives app updates but is per-machine.
-LICENSE_FILE: Path = data_root() / "license.json"
 
 # Bundled, read-only preset packs shipped alongside the app (spec files +
 # starter macros). Included in the packaged build via Nuitka --include-data-dir.

@@ -3,77 +3,86 @@
 Snapshot of where this project stands and how to continue — so a fresh machine
 (or a fresh Claude session) has full context from a `git pull`.
 
-_Last updated: 2026-07-11._
+_Last updated: 2026-08-06._
 
 ## What this project is
 
-**YuhunBot** — a commercial, freemium automation bot for the game **Onmyoji**
-(NetEase, Steam), built on the generic `window-macro-bot` engine. Sold as a
-paid product with a free tier.
+A **Windows UI-automation engine** — image/pixel matching, background input via
+PostMessage, DPI-correct window capture via WGC — with per-application macro packs
+layered on top. Onmyoji is the example pack it was developed against.
 
-- **Target game:** Onmyoji (turn-based shikigami/gacha collector). Chosen because
-  botting demand is high, our image-recognition method already works on it, and
-  competition is only unpolished free scripts. Full research: `marketing/TARGET-GAMES.md`.
-- **Brand:** "YuhunBot" (keeps NetEase's "Onmyoji" trademark out of the product name).
-- **Pricing:** $6/month or $35 lifetime (SEA-friendly; audience is SEA/VN/CN/JP).
-- **Monetization stack:** KeyAuth (licensing), Sellix + crypto (payments — mainstream
-  processors ban this category), Discord (community). Full playbook: `GO-COMMERCIAL.md`.
-- **Expansion after launch:** Summoners War (closest sibling), then Onmyoji variants.
+**Direction as of 2026-08-06: two editions, open source first.**
 
-## Current status: launch-ready (software side)
+- The **engine is fully open source** (MIT). Every feature works: background mode,
+  image/pixel/rect detection, loops, multi-window parallel runs. There is no tier.
+- The **paid side is maintained per-game packs and support** — a pack is a
+  `.wmbpack` file, which `engine/pack_store.py` already imports and exports, so
+  selling one needs no code. Recurring revenue matches the recurring cost, which is
+  re-capturing templates whenever a game patches its UI.
+- Releasing the open-source edition comes first; revenue is a later concern.
 
-8 features merged to `main`; 65 tests passing (`python -m pytest tests/`):
+This supersedes the freemium plan. The licensing, entitlement and KeyAuth machinery
+was removed on 2026-08-06 — about 1550 lines, plus 33 tests. It is recoverable from
+git history if the split ever moves to paid *features* instead of paid packs.
 
-1. Freemium licensing (KeyAuth + HWID + HMAC-signed offline cache), enforced in the engine
-2. Template Library manager (rename/delete/usage/orphans)
-3. Onmyoji branding (YuhunBot) + filled marketing/legal copy
-4. Macro packs — export/import shareable `.wmbpack` presets
-5. Onmyoji activity pack + `stop` action
-6. Guided Capture wizard (finish a pack by clicking through)
-7. Bundled packs into the build + first-run seeding of starter macros
-8. Hardened Onmyoji pack — resilient priority-poll with anti-ban CAPTCHA stop
+`GO-COMMERCIAL.md`, `marketing/` and `legal/` still describe the old freemium
+product and have not been rewritten. Treat them as historical.
 
 ## Where things live
 
 | Area | Path |
 |------|------|
-| Licensing / entitlements | `engine/licensing.py`, `engine/entitlements.py`, `engine/product_config.py` |
+| Engine | `engine/` — `image_matcher`, `action_runner`, `macro_engine`, `wgc_capture`, `background_input` |
 | Macro packs | `engine/pack_store.py`, `packs/` |
 | Onmyoji pack | `packs/onmyoji/` (macros + `templates.spec.json` + `CAPTURE-GUIDE.md`) |
 | Guided capture | `gui/capture_wizard.py` |
-| Commercial playbook | `GO-COMMERCIAL.md` |
-| Market research | `marketing/TARGET-GAMES.md` |
-| Marketing copy | `marketing/` (landing.html, store-listing.md, discord-announcement.md) |
-| Legal templates | `legal/` (EULA, refund, privacy) |
+| Developer probes | `tools/` — capture a window, score templates, capture the UI |
+| Engine behaviour notes | `CLAUDE.md` — read this before touching the matcher |
+| Backlog and PRDs | `docs/` |
 
-## Remaining work (all owner tasks — not code)
+## Remaining work
 
-1. **Capture the 14 Onmyoji templates** on the game (use Images → Guided capture… → `packs/onmyoji/templates.spec.json`). Capture `onmyoji_captcha.png` carefully — it's the anti-ban guard.
-2. Test a macro against live Onmyoji; report any misbehavior for tuning.
-3. Create accounts: **KeyAuth** → **Sellix** + crypto → **Discord**.
-4. Add **GitHub repo secrets** (see GO-COMMERCIAL.md § Step 4).
-5. `git tag v1.0.0 && git push origin v1.0.0` → CI builds the release.
-6. Optional: code-signing certificate.
+Code:
+
+1. Rewrite `README.md` around the engine. For an open-source project the README is
+   the product, and it currently reads as a sales page.
+2. Decide the project name — `YuhunBot` is the old game-specific brand.
+3. Decide whether the Onmyoji pack stays in the public repo or moves to the paid
+   side. It is both the legally sensitive part and the recurring-maintenance part.
+4. Randomised timing and click jitter. There is none: every delay is a fixed
+   constant and every click lands on the exact template centre.
+5. Capture-time validation in the UI — score a new template against the screen and
+   against existing templates, so a bad crop is caught when it is made.
+
+Owner:
+
+6. Capture the 9 outstanding Onmyoji templates (Images → Guided capture…).
+   `onmyoji_captcha.png` first: it is the anti-ban guard and is inert without it.
+7. Run the pack against the live game end to end — see
+   `docs/prd/pack-live-validation.md`. Never done; the largest unknown.
 
 ## Setting up on a new machine
 
 ```bash
 pip install -r requirements-dev.txt      # runtime + test deps
-python -m pytest tests/                   # sanity check (should be 65 passing)
+python -m pytest tests/                   # sanity check (should be 102 passing)
+python tools/import_check.py              # what CI also runs
 python main.py                            # run the app
 gh auth login                             # if using gh for PRs
 ```
 
-- **Build secrets:** `engine/_build_config.py` is git-ignored and NOT in the repo.
-  It's generated in CI from GitHub secrets at release time. For local Pro testing,
-  copy `engine/_build_config.example.py` → `engine/_build_config.py` and fill in
-  KeyAuth values, or set `WMB_DEV_TIER=pro` when running from source.
-- **Captured templates** live in `%APPDATA%/WindowMacroBotData/templates/` — they are
-  per-machine and do NOT transfer with git. Re-capture (or copy that folder over).
+- **No build secrets any more.** There is nothing to configure and no tier to
+  unlock; run it from source or build it and everything works.
+- **Captured templates** live next to the code (`templates/`) when running from
+  source, and in `%APPDATA%/WindowMacroBotData/templates/` in a packaged build.
+  Either way they are per-machine and do **not** travel with git — re-capture, or
+  copy the folder across. `python tools/game_probe.py list <spec>` shows what is
+  captured.
 
 ## Note on Claude context
 
-Claude's auto-memory lives under `~/.claude/projects/.../memory/` on the old
-machine — it does **not** travel with `git pull`. This file (plus `GO-COMMERCIAL.md`,
-`marketing/TARGET-GAMES.md`, and the commit history) is the durable context. To
-resume with Claude on the new machine, point it at this file first.
+Claude's auto-memory lives under `~/.claude/projects/.../memory/` and does **not**
+travel with `git pull`. The durable context is this file, `CLAUDE.md` (engine
+behaviour, and the measurement traps that produced it), `docs/`, and the commit
+history — the commit messages deliberately record *why*, including theories that
+measurement disproved. Point a fresh session at this file first.

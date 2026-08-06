@@ -49,7 +49,6 @@ WINDOWS = {
     "wizard":    "Guided Capture",
     "templates": "Template Library",
     "arranger":  "Arrange Windows",
-    "license":   None,          # title depends on product_config
 }
 
 
@@ -89,18 +88,11 @@ elif which == "templates":
 elif which == "arranger":
     from gui.arranger import WindowArranger
     WindowArranger(root)
-elif which == "license":
-    from engine.licensing import LicenseManager
-    from gui.license_dialog import LicenseDialog
-    LicenseDialog(root, LicenseManager(log_fn=lambda *a: None))
 root.mainloop()
 '''
 
 
 def expected_title(which: str) -> str:
-    if which == "license":
-        import engine.product_config as cfg
-        return f"{cfg.PRODUCT_NAME} — License"
     return WINDOWS[which]
 
 

@@ -4,15 +4,9 @@ import threading
 
 import pytest
 
-from engine.entitlements import BASIC_ACTIONS
 from engine.macro_engine import MacroEngine, _validate
 
 pytestmark = pytest.mark.unit
-
-
-def test_stop_is_a_basic_action():
-    # Free tier can use stop (it's not a paid detection feature).
-    assert "stop" in BASIC_ACTIONS
 
 
 def test_stop_action_validates():
