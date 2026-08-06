@@ -45,14 +45,20 @@ def _list_windows() -> List[Tuple[int, str]]:
     return sorted(windows, key=lambda x: x[1].lower())
 
 
+_MONITORINFOF_PRIMARY = 1
+
+
 def _get_monitors() -> List[Dict]:
     """Return list of {name, x, y, w, h, work, primary} for each monitor."""
     monitors = []
     for hmon, _, rect in win32api.EnumDisplayMonitors():
         x, y, x2, y2 = rect
         w, h = x2 - x, y2 - y
-        primary = (x == 0 and y == 0)
         info = win32api.GetMonitorInfo(hmon)
+        # Ask Windows which monitor is primary rather than inferring it from the
+        # origin. Secondary monitors can sit at a negative origin — this machine
+        # has one at x=-2560 — so origin arithmetic is not a reliable signal.
+        primary = bool(info.get("Flags", 0) & _MONITORINFOF_PRIMARY)
         work = info["Work"]  # (left, top, right, bottom) excluding taskbar
         idx = len(monitors) + 1
         name = f"Monitor {idx} ({w}x{h})"
@@ -71,6 +77,50 @@ def _get_monitors() -> List[Dict]:
             "primary": True,
         })
     return monitors
+
+
+def tile_rects(monitor: Dict, cols: int, gap: int, count: int) -> List[Tuple[int, int, int, int]]:
+    """Rects for *count* windows tiled on *monitor*, as (x, y, w, h).
+
+    Pure arithmetic and no Tk, so it can be tested directly.
+
+    Two things this gets right that the previous inline version did not, both of
+    which sent windows off the display:
+
+    * It divides the work area's HEIGHT among the rows. The old code advanced each
+      row by the full work-area height, so row 1 started exactly at the bottom
+      edge — every window past the first row landed off-monitor. The preview's
+      "+N more below" was describing that as if it were a feature.
+    * It never keeps a window's original height. Preserving it moves a window
+      unchanged onto a monitor that may be much shorter: a 2400px-tall window put
+      on a 1380px work area overflowed by 1020px. Tiling means fitting the target.
+
+    Coordinates are virtual-desktop absolute, which is what SetWindowPos wants, so
+    a monitor at a negative origin (a screen to the left of the primary) works
+    without special-casing.
+    """
+    if count <= 0:
+        return []
+    wa_x, wa_y, wa_w, wa_h = monitor["work"]
+    cols = max(1, min(cols, count))
+    rows = -(-count // cols)                       # ceil
+    gap = max(0, gap)
+
+    # Never let the gaps consume the whole axis.
+    cell_w = max(1, (wa_w - gap * (cols + 1)) // cols)
+    cell_h = max(1, (wa_h - gap * (rows + 1)) // rows)
+
+    rects = []
+    for i in range(count):
+        col, row = i % cols, i // cols
+        x = wa_x + gap + col * (cell_w + gap)
+        y = wa_y + gap + row * (cell_h + gap)
+        # Clamp so rounding or an extreme gap can never push a window past the
+        # monitor it was explicitly assigned to.
+        w = min(cell_w, wa_x + wa_w - x)
+        h = min(cell_h, wa_y + wa_h - y)
+        rects.append((x, y, max(1, w), max(1, h)))
+    return rects
 
 
 def _monitor_index_at(x: int, y: int, monitors: List[Dict]) -> int:
@@ -173,16 +223,22 @@ class WindowArranger(tk.Toplevel):
         # Monitor
         tk.Label(inner, text="Monitor", font=T.FONT, bg=T.BG2,
                  fg=T.FG).pack(side=tk.LEFT, padx=(0, 4))
-        mon_menu = tk.OptionMenu(inner, self._monitor_var, 0)
+        # OptionMenu displays its variable, and _monitor_var holds an index — so
+        # the control read "0" / "1" and gave no way to tell which screen was
+        # selected. Display a name, keep the index for the logic.
+        self._monitor_label = tk.StringVar(
+            value=self._monitors[self._monitor_var.get()]["name"])
+        mon_menu = tk.OptionMenu(inner, self._monitor_label,
+                                 self._monitor_label.get())
         mon_menu.configure(bg=T.BG3, fg=T.FG, font=T.FONT,
                            activebackground=T.BG4, highlightthickness=0,
-                           relief=tk.FLAT)
+                           relief=tk.FLAT, anchor="w")
         mon_menu["menu"].configure(bg=T.BG3, fg=T.FG, font=T.FONT,
                                    activebackground=T.ACCENT)
         mon_menu["menu"].delete(0, tk.END)
         for i, m in enumerate(self._monitors):
             mon_menu["menu"].add_command(
-                label=m["name"], command=lambda v=i: self._monitor_var.set(v))
+                label=m["name"], command=lambda v=i: self._select_monitor(v))
         mon_menu.pack(side=tk.LEFT, padx=(0, 16))
 
         # Columns
@@ -430,33 +486,28 @@ class WindowArranger(tk.Toplevel):
         c.create_rectangle(ox, oy, ox + wa_w * scale, oy + wa_h * scale,
                            outline=T.BORDER, width=T.px(1))
 
-        # Draw columns — width split evenly, height = work area
-        cell_w = (wa_w - gap * (cols + 1)) / cols
-
-        for i in range(min(n, cols)):
-            x = gap + i * (cell_w + gap)
-            sx = ox + x * scale
-            sy = oy + gap * scale
-            sw = cell_w * scale
-            sh = wa_h * scale - gap * scale * 2
+        # Draw the same grid _apply will use, so the preview cannot promise a
+        # layout the apply step does not produce.
+        for i, (rx, ry, rw, rh) in enumerate(tile_rects(mon, cols, gap, n)):
+            sx = ox + (rx - wa_x) * scale
+            sy = oy + (ry - wa_y) * scale
+            sw, sh = rw * scale, rh * scale
 
             fill = T.ACCENT if i % 2 == 0 else T.SUCCESS
             c.create_rectangle(sx, sy, sx + sw, sy + sh,
                                fill=fill, outline="", stipple="gray50")
-            if i < n:
-                _, title = self._selected[i]
-                c.create_text(sx + sw / 2, sy + sh / 2,
-                              text=_ellipsize(title, 10), fill=T.FG,
-                              font=("Segoe UI", 7),
-                              width=max(sw - T.px(4), T.px(10)))
-
-        # Show overflow count if more windows than columns
-        if n > cols:
-            c.create_text(cw // 2, ch - T.px(8),
-                          text=f"+{n - cols} more below",
-                          fill=T.FG_DIM, font=("Segoe UI", 7))
+            _, title = self._selected[i]
+            c.create_text(sx + sw / 2, sy + sh / 2,
+                          text=_ellipsize(title, 10), fill=T.FG,
+                          font=("Segoe UI", 7),
+                          width=max(sw - T.px(4), T.px(10)))
 
     # ── Actions ──────────────────────────────────────────────────────────────
+
+    def _select_monitor(self, index: int):
+        self._monitor_var.set(index)
+        self._monitor_label.set(self._monitors[index]["name"])
+        self._draw_preview()
 
     def _toggle(self, hwnd, title, var):
         if var.get():
@@ -510,26 +561,11 @@ class WindowArranger(tk.Toplevel):
             return
 
         mon = self._monitors[self._monitor_var.get()]
-        wa_x, wa_y, wa_w, wa_h = mon["work"]
         cols = max(1, self._cols_var.get())
         gap = self._gap_var.get()
 
-        # Only split width by columns — keep each window's original height
-        cell_w = int((wa_w - gap * (cols + 1)) / cols)
-
-        for i, (hwnd, _) in enumerate(self._selected):
-            col = i % cols
-            row = i // cols
-            x = wa_x + gap + col * (cell_w + gap)
-            y = wa_y + gap + row * (wa_h + gap)
-
-            # Keep original window height
-            try:
-                rect = win32gui.GetWindowRect(hwnd)
-                orig_h = rect[3] - rect[1]
-            except Exception:
-                orig_h = wa_h
-
-            _place_window(hwnd, x, y, cell_w, orig_h)
+        for hwnd, rect in zip((h for h, _ in self._selected),
+                              tile_rects(mon, cols, gap, n)):
+            _place_window(hwnd, *rect)
 
         self.destroy()
