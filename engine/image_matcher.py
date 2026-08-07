@@ -52,8 +52,10 @@ class TemplateUnusable(TemplateMissing):
 
 
 # Below this standard deviation a template carries too little structure for
-# normalised correlation to mean anything.
-_MIN_NEEDLE_STD = 3.0
+# normalised correlation to mean anything. Public because the capture wizard and
+# tools/ check a crop against the same bar the matcher will hold it to.
+MIN_NEEDLE_STD = 3.0
+_MIN_NEEDLE_STD = MIN_NEEDLE_STD
 
 
 def _clamp_score(raw: float) -> float:
@@ -111,7 +113,45 @@ _REFINE_FACTORS = tuple(round(1.0 + i * 0.015, 4) for i in range(-4, 5))
 # interval is enough because the answer generalises: whichever template resolves the
 # scale records it in _window_scale, and the others then try that first for the price
 # of a single match.
+#
+# But that only holds once *some* template has answered, and only a template that is
+# actually on screen can answer. Rationing by window size alone starved the one that
+# could: measured against a live game window at 0.44x, five templates scored in a row
+# all missed, because the first (absent) one spent the interval and the next four were
+# refused discovery in 0.05 s each. Scored alone with a clean cache, the template whose
+# button was plainly visible matched at 0.94. Every pack macro checks absent guard
+# templates first, so in a 2.5 s poll loop the scale could never be discovered at all —
+# which is why the pack only ever worked at exactly the capture size.
+#
+# So a template that has never had a discovery pass at this window size is allowed one,
+# subject only to a short floor that stops a single tick spending several sweeps at
+# once. Templates already tried fall back to the long interval. The one-off cost is
+# (number of templates x sweep), paid a tick or two at a time, and it ends the moment
+# any visible template answers.
 _DISCOVERY_INTERVAL = 20.0
+
+# The floor between two first-time sweeps is "however long the last one took", never
+# less than this. A fixed floor cannot serve both ends: a sweep measured 1.1 s on a
+# 1236x696 window and ~6.9 s on 2560x1380, so 1 s would let eight templates spend 55 s
+# inside a single 2.5 s tick on the big window — blind for a minute, which is worse than
+# converging a few seconds later. Waiting out the last sweep's own cost keeps discovery
+# to roughly half the wall clock whatever the window size, and it needs no per-window
+# tuning.
+_SWEEP_FLOOR = 1.0
+
+# Diagnostics (tools/) need the answer more than they need the budget: scoring a whole
+# templates directory in one pass is exactly the batch the floor is there to slow down,
+# and a report that says "no match" because of rationing is worse than a slow one.
+_unrationed = False
+
+
+def set_unrationed_discovery(enabled: bool = True) -> None:
+    """Let every template have a scale search, whatever it costs (diagnostics only).
+
+    A macro must never turn this on: it is the cost the rationing exists to bound.
+    """
+    global _unrationed
+    _unrationed = bool(enabled)
 
 # (resolved template path, haystack w, haystack h) -> scale that matched
 _scale_cache: dict = {}
@@ -122,7 +162,16 @@ _scale_cache: dict = {}
 # different window sizes, and one of them answering would otherwise permanently
 # strand all the rest.
 _window_scale: dict = {}
-_sweep_state: dict = {}      # key -> monotonic time of the last sweep
+_sweep_state: dict = {}      # (haystack w, h) -> monotonic time of the last sweep
+_sweep_cost: dict = {}       # (haystack w, h) -> seconds the last sweep there took
+# (resolved template path, haystack w, h) -> monotonic time of that template's last
+# discovery pass. Per template, not per window size: the retry clock has to be, or
+# whichever template is scored first takes every slot forever.
+_swept: dict = {}
+# (haystack w, h) -> the keys that have asked for a search at this size. Needed to
+# answer "who has waited longest", which is what stops the rotation from starving
+# everything behind it in scoring order.
+_seen: dict = {}
 
 # Guards the caches above: several macros can match concurrently (run_folder).
 _scale_lock = threading.Lock()
@@ -158,22 +207,102 @@ class Match(tuple):
 
 def clear_scale_cache() -> None:
     """Forget discovered template scales (used by tests and on window resize)."""
+    global _unrationed
+    # Also drops the diagnostics override. It is a module global with no context
+    # manager, so anything that turns it on inside this process — a future in-app
+    # "why doesn't my template match?" panel, for instance — would otherwise leave
+    # every later macro run paying for unlimited searches.
+    _unrationed = False
     with _scale_lock:
         _scale_cache.clear()
         _window_scale.clear()
         _sweep_state.clear()
+        _sweep_cost.clear()
+        _swept.clear()
+        _seen.clear()
+
+
+def _claim_sweep(key: tuple, take: bool = True) -> bool:
+    """Whether this template may spend a scale search right now — and claim the slot.
+
+    Three rules, all of which have to allow it. Each of the first two replaced a
+    plausible design that measurement killed:
+
+    - **One search at a time per window size.** The floor is what the last search
+      there cost. A fixed floor cannot serve a 1.1 s search and a 6.9 s one.
+    - **A template waits out ``_DISCOVERY_INTERVAL`` after its own last search.** A
+      clock kept per *window size* instead hands every slot to whichever template is
+      scored first, and pack macros check absent guard templates first, so the visible
+      one starves. Measured: 24 sweeps for the first guard, 0 for the template on
+      screen.
+    - **The slot goes to the template that has waited longest**, with "never searched"
+      counting as forever. Without this, the two rules above still starve everything
+      past roughly ``_DISCOVERY_INTERVAL / tick`` positions in scoring order, because
+      templates already in the rotation keep taking the slot from those behind them.
+      Measured with this pack's own order — 8 templates, the one on screen scored 8th
+      behind seven absent guards, 1.1 s searches, 2.5 s poll: after 400 ticks the first
+      six guards had swept 66-67 times each, the visible template **zero**, and it was
+      never found. With this rule: all 17 templates served, found on tick 17, sweeps
+      even at 22-23 each.
+
+    Asking registers the template as waiting at this size — a template that is always
+    refused must still join the queue, or it can never become the stalest.
+
+    Check and claim happen under one lock. Two acquisitions let 8 threads start 4
+    concurrent searches where the floor allows 1 (measured with a 1 µs switch
+    interval), and ``run_folder`` runs macros in parallel by default.
+    """
+    if _unrationed:
+        return True
+    with _scale_lock:
+        size = key[1:]
+        now = time.monotonic()
+        waiting = _seen.setdefault(size, set())
+        waiting.add(key)
+
+        if (now - _sweep_state.get(size, 0.0)) < max(_SWEEP_FLOOR,
+                                                     _sweep_cost.get(size, 0.0)):
+            return False
+
+        def waited(k) -> float:
+            last = _swept.get(k)
+            return float("inf") if last is None else now - last
+
+        mine = waited(key)
+        if mine < _DISCOVERY_INTERVAL:
+            return False
+        if mine < max(waited(k) for k in waiting):
+            return False            # someone else has been waiting longer
+
+        if take:
+            _sweep_state[size] = now
+            _swept[key] = now
+        return True
 
 
 def _may_sweep(key: tuple) -> bool:
-    """Whether to spend a scale search right now, for this window size."""
-    with _scale_lock:
-        last = _sweep_state.get(key[1:], 0.0)
-        return (time.monotonic() - last) >= _DISCOVERY_INTERVAL
+    """The same decision without taking the slot. For tests and readability."""
+    return _claim_sweep(key, take=False)
 
 
 def _note_sweep(key: tuple) -> None:
+    """Record a search without going through the decision — for tests setting up a
+    state. Production code claims through _claim_sweep, which records it itself."""
     with _scale_lock:
-        _sweep_state[key[1:]] = time.monotonic()
+        now = time.monotonic()
+        _sweep_state[key[1:]] = now
+        _swept[key] = now
+        _seen.setdefault(key[1:], set()).add(key)
+
+
+def _note_sweep_cost(key: tuple, seconds: float) -> None:
+    """Record what the search cost, and count both floors from when it finished."""
+    with _scale_lock:
+        now = time.monotonic()
+        size = key[1:]
+        _sweep_cost[size] = seconds
+        _sweep_state[size] = now
+        _swept[key] = now
 
 
 def _record_scale(key: tuple, scale: float) -> None:
@@ -473,6 +602,23 @@ def _try_screen_grab_window_cv(hwnd: int) -> Optional[np.ndarray]:
 
 # ── template loading & scale handling ────────────────────────────────────────
 
+def imread_unicode(path) -> Optional[np.ndarray]:
+    """Read an image OpenCV cannot open itself.
+
+    `cv2.imread` goes through a narrow-char API on Windows and returns None for any
+    path containing non-ASCII characters. Templates live under `%APPDATA%/Macroscope`,
+    so a single accented character in a profile name would make every template in a
+    pack report as unreadable.
+    """
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+
 def _load_needle(template_path: str) -> Tuple[np.ndarray, str]:
     """Resolve *template_path* and read it, or raise TemplateMissing."""
     path = Path(template_path)
@@ -480,7 +626,7 @@ def _load_needle(template_path: str) -> Tuple[np.ndarray, str]:
         path = data_root() / path
     if not path.exists():
         raise TemplateMissing(f"Template not captured yet: {path}")
-    needle = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    needle = imread_unicode(path)
     if needle is None:
         raise TemplateMissing(f"Template image is unreadable/corrupt: {path}")
     if float(needle.std()) < _MIN_NEEDLE_STD:
@@ -564,11 +710,16 @@ def _match_scaled(haystack, needle, threshold, key):
             _record_scale(key, s)
             return result
 
-    if not _may_sweep(key):
+    if not _claim_sweep(key):
         return None
 
-    _note_sweep(key)
-    scale = _discover_scale(haystack, needle)
+    started = time.monotonic()
+    try:
+        scale = _discover_scale(haystack, needle)
+    finally:
+        # In a finally: a search that raises must still spend its ration, or a template
+        # whose search blows up gets a free retry on every single tick.
+        _note_sweep_cost(key, time.monotonic() - started)
     if scale is None:
         return None
     result = _cv_match(haystack, _resize_needle(needle, scale)
@@ -590,19 +741,22 @@ def _match_all_scaled(haystack, needle, threshold, key):
             _record_scale(key, s)
             return results
 
-    if not _may_sweep(key):
+    if not _claim_sweep(key):
         return []
 
-    _note_sweep(key)
-    tried = set(_scale_order(key))
-    for s in _SCALE_LADDER:
-        if s in tried:
-            continue
-        results = _cv_match_all(haystack, _resize_needle(needle, s), threshold)
-        if results:
-            _record_scale(key, s)
-            return results
-    return []
+    started = time.monotonic()
+    try:
+        tried = set(_scale_order(key))
+        for s in _SCALE_LADDER:
+            if s in tried:
+                continue
+            results = _cv_match_all(haystack, _resize_needle(needle, s), threshold)
+            if results:
+                _record_scale(key, s)
+                return results
+        return []
+    finally:
+        _note_sweep_cost(key, time.monotonic() - started)
 
 
 # ── OpenCV template matching ─────────────────────────────────────────────────

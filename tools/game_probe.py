@@ -175,15 +175,34 @@ def cmd_crop(args):
                 or args.y + args.h > H or args.w <= 0 or args.h <= 0):
             sys.exit(f"box {(args.x, args.y, args.w, args.h)} outside frame {W}x{H}")
         out = img.crop((args.x, args.y, args.x + args.w, args.y + args.h))
-        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-        dest = TEMPLATES_DIR / args.name
-        out.save(dest)
-    # A featureless crop matches everywhere (see image_matcher._MIN_NEEDLE_STD),
-    # so say so now rather than letting it mis-click later.
-    import numpy as np
-    std = float(np.asarray(out.convert("RGB")).std())
-    warn = "  <- TOO FLAT, re-crop with more detail" if std < 3.0 else ""
-    print(f"saved {args.name} {args.w}x{args.h} std={std:.1f}{warn} -> {dest}")
+
+        # The same checks the capture wizard runs, held to the same bar, so a template
+        # cropped from here is not accepted on terms the GUI would refuse — which means
+        # judging it BEFORE writing it. The frame is the screen this crop came from,
+        # which is what makes the uniqueness check meaningful.
+        from engine import template_check as tc
+        findings = tc.inspect_crop(out, screen=img,
+                                   existing=tc_existing(args.name))
+
+    std = tc.contrast(out)
+    for finding in findings:
+        print(f"  {finding.level.upper()}: {finding.message}")
+    if any(f.blocks for f in findings) and not args.force:
+        sys.exit(f"NOT saved: {args.name} would be refused by the matcher "
+                 f"(std={std:.1f}). Re-crop, or pass --force to write it anyway.")
+
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+    dest = TEMPLATES_DIR / args.name
+    out.save(dest)
+    print(f"saved {args.name} {args.w}x{args.h} std={std:.1f} -> {dest}")
+
+
+def tc_existing(exclude: str):
+    """Templates already captured, minus the one being written."""
+    from engine.paths import TEMPLATES_DIR
+    if not TEMPLATES_DIR.exists():
+        return []
+    return [p for p in sorted(TEMPLATES_DIR.glob("*.png")) if p.name != exclude]
 
 
 def cmd_click(args):
@@ -262,6 +281,8 @@ def main():
     p = sub.add_parser("crop", help="save a region as a template")
     p.add_argument("name"); p.add_argument("x", type=int); p.add_argument("y", type=int)
     p.add_argument("w", type=int); p.add_argument("h", type=int)
+    p.add_argument("--force", action="store_true",
+                   help="write it even if the matcher would refuse it")
     p.set_defaults(fn=cmd_crop)
 
     p = sub.add_parser("click", help="post a click at client coordinates")

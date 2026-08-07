@@ -11,7 +11,14 @@ Usage
         # img is a PIL Image, or None if cancelled
         ...
 
-    RegionCapture(root, on_captured).start()
+    cap = RegionCapture(root, on_captured)
+    cap.start()
+    # cap.screen afterwards: the whole screen the crop came from, or None.
+
+The full screen is kept because a crop can only be judged against the frame it was
+taken from — see engine.template_check. Both come from a single grab, since a second
+grab of an animating game is a different picture, and a crop that cannot find itself
+in it would look like a bad crop rather than a late screenshot.
 """
 
 import tkinter as tk
@@ -36,6 +43,13 @@ class RegionCapture:
         self._canvas:  Optional[tk.Canvas]   = None
         self._rect_id: Optional[int] = None
         self._sx = self._sy = 0   # start position (screen coords)
+        self._origin = (0, 0)     # virtual-desktop top-left, set in start()
+        # Set in start(). None means "unknown", which disables cropping from the full
+        # grab rather than trusting an origin nothing has corroborated.
+        self._virtual_size = None
+        # The whole screen the crop was taken from, for callers that want to judge
+        # the crop against it. None when it could not be established.
+        self.screen = None
 
     # ── public ────────────────────────────────────────────────────────────────
 
@@ -59,6 +73,8 @@ class RegionCapture:
             vw = ov.winfo_screenwidth()
             vh = ov.winfo_screenheight()
         ov.geometry(f"{vw}x{vh}+{vx}+{vy}")
+        self._origin = (vx, vy)
+        self._virtual_size = (vw, vh)
 
         cv = tk.Canvas(ov, bg="black", highlightthickness=0, cursor="crosshair")
         cv.pack(fill=tk.BOTH, expand=True)
@@ -118,10 +134,46 @@ class RegionCapture:
 
     def _grab(self, x1, y1, x2, y2, w, h):
         try:
-            img = ImageGrab.grab(bbox=(x1, y1, x2, y2), all_screens=True)
+            self.screen = self._grab_screen()
+            img = self._crop_from_screen(x1, y1, x2, y2)
+            if img is None:
+                # Could not place the selection in the full grab, so take the
+                # region on its own and let PIL apply the offset. The screen is
+                # dropped rather than passed on wrong.
+                self.screen = None
+                img = ImageGrab.grab(bbox=(x1, y1, x2, y2), all_screens=True)
             self._callback(img, x1, y1, w, h)
-        except Exception as exc:
+        except Exception:
+            self.screen = None
             self._callback(None, 0, 0, 0, 0)
+
+    def _grab_screen(self):
+        """The whole virtual desktop, or None if it does not match the metrics.
+
+        PIL crops a bbox using the offset the grab reported, which is not exposed.
+        Cropping here means trusting SM_XVIRTUALSCREEN to be that same origin, so
+        the size is checked against SM_CXVIRTUALSCREEN first: if they disagree, the
+        offset cannot be trusted either.
+        """
+        try:
+            screen = ImageGrab.grab(all_screens=True)
+        except Exception:
+            return None
+        # No metrics means no corroborated origin, so the crop cannot be trusted
+        # either. Absence must disable the fast path, not skip the check.
+        if self._virtual_size is None or screen.size != self._virtual_size:
+            return None
+        return screen
+
+    def _crop_from_screen(self, x1, y1, x2, y2):
+        if self.screen is None:
+            return None
+        ox, oy = self._origin
+        box = (x1 - ox, y1 - oy, x2 - ox, y2 - oy)
+        sw, sh = self.screen.size
+        if box[0] < 0 or box[1] < 0 or box[2] > sw or box[3] > sh:
+            return None
+        return self.screen.crop(box)
 
     def _on_cancel(self, event=None):
         self._close()

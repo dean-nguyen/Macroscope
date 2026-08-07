@@ -1,6 +1,42 @@
 # PRD — Run the Onmyoji pack against the live game
 
-**Backlog:** E1.4 · **Status:** todo · **Blocks:** E4.3 (the `v1.0.0` tag)
+**Backlog:** E5.2 · **Status:** Realm Raid done, AP farms outstanding · **Blocks:** the
+`v1.0.0` tag
+
+## Results — Realm Raid, 2026-08-07
+
+Run through a real `MacroEngine` against a live 1236x696 client, clicks not
+intercepted, five raid tickets spent. **Six defects, four of them in the engine**, and
+every one of them was invisible to reading the code — which is what this document
+predicted.
+
+| # | What broke | Where it is fixed |
+|---|---|---|
+| 1 | **The pack could only ever work at exactly the capture size.** Scale discovery was rationed per window size, so the first template to miss spent the interval and every template after it was refused. Every macro checks absent guards first, so the one template actually on screen never got a search. Measured: five templates scored in a row all read "no match"; the one whose button was plainly visible scored **0.94** when given a search of its own | `image_matcher._may_sweep` — a template that has never searched at this window size gets its own turn, floored by what the last search cost |
+| 2 | **`"target_window": "Onmyoji"` resolved to a YouTube tab** titled "(176) Onmyoji - … - YouTube" and posted a click into the browser | `background_input.find_all_windows` ranks candidates and accepts a `target_class`; the picker records it |
+| 3 | **The macro clicked grid coordinates onto a battle screen** for 15 s. `image_wait` on the list template returned 0.2 s after the Attack click, because the game keeps the old screen drawn while it fades out | A fixed settle before the wait, then wait for the *result* screen |
+| 4 | **Waiting for the list after a battle deadlocked.** The post-battle screen is fullscreen with "Tap to continue"; the list is not behind it and the only way back is to tap. The macro sat in `image_wait` for the full 180 s timeout waiting for a screen its own wait prevented | Wait for `reward_confirm`, tap it, tap the second overlay |
+| 5 | **Refresh was pressed 23 times in 10 minutes and refreshed nothing.** It raises "Raid log progress will be reset if you refresh. Continue?" and the macro never answered | `onmyoji_dialog_ok.png`, clicked inside Refresh's own `on_found` so it cannot fire onto a battle screen |
+| 6 | **The capture-time collision check missed a real duplicate.** Two crops of the same element at different window sizes scored 0.31 as stored; the same button captured from a 2840x1600 and a 1236x696 window is the same button. The check compared crops as stored, and then only on the coarse ladder | `template_check._cross_score` runs the matcher's own two-stage search, in both directions |
+
+**Verified working.** Two full cycles unattended, then a third after a refresh:
+target selected → Attack (0.981, 0.916, 0.927) → battle → result cleared → list back →
+next target. Tickets 16/30 → 11/30, Weekly 62 → 70, Rank 1883 → 1674, raid log 4 → 8,
+and the raided targets carry KO stamps. Proportional `xp`/`yp` clicks landed on the
+right grid cells through a real run. Jitter moved every click a few pixels inside the
+matched button and none of them missed.
+
+**Not verified.** A defeat (never lost), the Guild list (the account's `Win(s)` were
+already 6/6), the `no_attempts` and `guild_no_wins` guards, and scrolling the Guild
+list to reach members below the sixth — that last is still the open question it was.
+
+**One limitation this exposed in the stall guard.** It did not fire during the 10
+minutes of pressing Refresh, because `find_and_click` matched Refresh on every tick and
+recognition resets the clock. The guard detects a macro that has lost the screen, not
+one that recognises something and makes no progress. That is a real gap, not a bug in
+the implementation, and it needs a different signal to close.
+
+---
 
 ## Why this exists
 

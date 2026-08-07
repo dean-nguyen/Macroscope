@@ -67,6 +67,13 @@ def main():
         sys.exit(f"{title!r} is minimised — no frames are produced while it is, "
                  f"so every template would report 'no match'")
 
+    # Every template gets a scale search here, whatever it costs. Scoring a whole
+    # directory in one pass is exactly the batch the ration exists to slow down, and
+    # a report that says "no match" because the previous template spent the budget is
+    # worse than a slow report. Measured: five templates in a row all read "no match"
+    # while the second one's button was plainly on screen and scored 0.94 alone.
+    im.set_unrationed_discovery(True)
+
     haystack = im._grab_haystack(hwnd, None)
     if haystack is None:
         sys.exit("could not capture the window")

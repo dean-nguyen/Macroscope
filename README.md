@@ -40,9 +40,9 @@ finds it on screen and clicks inside it.
 
 ## What makes it more than a click recorder
 
-Five things this handles that a naive image-matching macro tool does not. The first
-four were each found by measuring on a live application, and those measurements are
-written down in `CLAUDE.md`.
+Six things this handles that a naive image-matching macro tool does not. Most were
+found by measuring on a live application, and those measurements are written down in
+`CLAUDE.md`.
 
 **It survives the window being resized.** A template captured at 2840×1600 still
 matches at 1280×720. The engine searches for the scale factor once — coarse ladder for
@@ -73,10 +73,20 @@ template, and the last of which no template could have anticipated. A macro that
 recognises nothing but also clicks nothing is a watcher waiting for something to
 appear, and is left alone.
 
-It also refuses to do things that cannot work. A featureless crop — an empty panel, a
-solid button fill — correlates perfectly with anything, so it is rejected rather than
-silently matching everywhere. An uncaptured template degrades to "not found" and is
-listed at the start of every run, instead of aborting the macro.
+**It tells you a capture is bad while you can still fix it.** When you crop a
+template, it is checked before it is saved — against the same screen grab it came
+from, and against every template you have already captured. A featureless crop is
+refused outright, because normalised correlation divides by the variation in the
+image and a flat crop matches anywhere. A crop that appears more than once on its own
+screen is flagged, because `find_and_click` clicks the single best match and which of
+five identical buttons that is is not something the macro controls. And a crop that
+scores above 0.80 against a template you already have is flagged, because at the
+threshold macros click at, the engine cannot tell them apart however different they
+look to you — a plain `OK` button was measured at 0.91 against a completely different
+button on the same screen.
+
+An uncaptured template degrades to "not found" and is listed at the start of every
+run, instead of aborting the macro.
 
 Timing and click positions are scattered rather than identical: `wait` delays and the
 loop delay vary by ±15%, and a click lands a few pixels off the centre of the matched
@@ -89,9 +99,9 @@ are used exactly as written; see `docs/SCHEMA.md`.
 
 1. **Pick the window.** The editor's window picker shows a live preview of each one.
 2. **Capture what to look for.** Editor → Capture Region, or Images → Guided capture…
-   to walk a whole list. Crop tightly, and crop *distinctive* content — a plain `OK`
-   button was measured scoring 0.91 against a completely different button on the same
-   screen, because the two share their chrome and `OK` is two characters of text.
+   to walk a whole list. Crop tightly, and crop *distinctive* content. Both paths
+   check the crop before saving it and say what is wrong, so you do not have to know
+   this in advance.
 3. **Write the actions,** or start from a pack.
 4. **Run it.** The log shows every check, its score, and where it matched.
 
@@ -125,6 +135,7 @@ engine/
   wgc_capture.py       Windows.Graphics.Capture — reads occluded windows
   rect_detector.py     contour-based rectangle detection
   pack_store.py        .wmbpack import / export
+  template_check.py    judges a crop before it is saved
 gui/                   tkinter app: macro list, editor, capture wizard, arranger
 tools/                 developer probes — see tools/README.md
 docs/SCHEMA.md         every macro field and action, with its real default

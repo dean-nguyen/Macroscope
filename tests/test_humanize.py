@@ -314,20 +314,31 @@ def _looping(**fields):
     return macro
 
 
-def _run_guarded(engine, macro, timeout=5.0):
-    """Run _execute on a worker and always tear it down.
+class _Run:
+    """What a guarded run looked like at its deadline, sampled before teardown."""
 
-    Without the finally, a regression leaves a daemon thread spinning _execute at
-    ~1000 iterations/sec for the rest of the session.
+    def __init__(self, alive: bool, stopped: bool):
+        self.alive = alive
+        self.stopped = stopped
+
+
+def _run_guarded(engine, macro, timeout=5.0):
+    """Run _execute on a worker, sample it, and always tear it down.
+
+    The state is sampled *before* the teardown, because setting the stop flag and
+    then asking whether the thread is alive is a race the assertion loses on a
+    loaded machine. Without the teardown at all, a regression leaves a daemon thread
+    spinning _execute at ~1000 iterations/sec for the rest of the session.
     """
     stop = threading.Event()
     thread = threading.Thread(target=engine._execute, args=(macro, stop), daemon=True)
     thread.start()
     try:
         thread.join(timeout=timeout)
-        return thread, stop
+        return _Run(alive=thread.is_alive(), stopped=stop.is_set())
     finally:
         stop.set()
+        thread.join(timeout=5.0)
 
 
 def test_stall_guard_stops_a_macro_clicking_at_a_screen_it_cannot_read(monkeypatch):
@@ -339,11 +350,12 @@ def test_stall_guard_stops_a_macro_clicking_at_a_screen_it_cannot_read(monkeypat
     logged = []
     engine = MacroEngine(log_fn=logged.append)
 
-    thread, stop = _run_guarded(engine, _looping(stall_timeout_ms=60))
+    run = _run_guarded(engine, _looping(stall_timeout_ms=60))
 
-    assert not thread.is_alive(), "the stall guard did not stop the loop"
-    assert stop.is_set()
+    assert not run.alive, "the stall guard did not stop the loop"
+    assert run.stopped
     assert any("stalled" in m for m in logged), logged
+    assert "m" in engine._stalled, "a stall must be distinguishable from a user stop"
 
 
 def test_a_watcher_that_clicks_nothing_is_left_alone(monkeypatch):
@@ -358,9 +370,9 @@ def test_a_watcher_that_clicks_nothing_is_left_alone(monkeypatch):
                      "on_found": [{"type": "click", "x": 1, "y": 1}]}],
     }
 
-    thread, stop = _run_guarded(engine, watcher, timeout=0.4)
+    run = _run_guarded(engine, watcher, timeout=0.4)
 
-    assert thread.is_alive(), "a macro that only watches must not be stopped"
+    assert run.alive, "a macro that only watches must not be stopped"
     assert not any("stalled" in m for m in logged), logged
 
 
@@ -374,9 +386,9 @@ def test_a_macro_that_cannot_recognise_anything_is_not_guarded():
         "actions": [{"type": "wait", "ms": 0}],
     }
 
-    thread, stop = _run_guarded(engine, blind, timeout=0.4)
+    run = _run_guarded(engine, blind, timeout=0.4)
 
-    assert thread.is_alive()
+    assert run.alive
     assert not any("stalled" in m for m in logged), logged
 
 
@@ -410,9 +422,9 @@ def test_the_stall_guard_can_be_disabled(monkeypatch):
     logged = []
     engine = MacroEngine(log_fn=logged.append)
 
-    thread, stop = _run_guarded(engine, _looping(stall_timeout_ms=0), timeout=0.4)
+    run = _run_guarded(engine, _looping(stall_timeout_ms=0), timeout=0.4)
 
-    assert thread.is_alive(), "stall_timeout_ms: 0 must mean never stop on its own"
+    assert run.alive, "stall_timeout_ms: 0 must mean never stop on its own"
     assert not any("stalled" in m for m in logged)
 
 

@@ -53,7 +53,10 @@ def test_seed_skips_macro_without_name(tmp_path):
 
 
 def test_bundled_onmyoji_pack_seeds_all_macros(tmp_path):
-    # The real bundled Onmyoji pack seeds 7 activity macros plus the two
-    # one-shot claims (mail and sign-in, split apart since each needs its own
-    # screen open).
-    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 9
+    # The real bundled Onmyoji pack seeds 8 activity macros plus the two one-shot
+    # claims (mail and sign-in, split apart since each needs its own screen open).
+    # Realm Raid is two macros, not one: the Individual list is a fixed 3x3 grid with
+    # a Refresh button, while the Guild list is a scrolling two-column member list
+    # with its own attempt counter and no Refresh — different enough that one macro
+    # could not serve both.
+    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 10

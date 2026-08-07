@@ -3,6 +3,7 @@
   "description": "One-shot: claim the daily sign-in reward. Open the SIGN-IN screen first — this macro does not navigate.",
   "background": true,
   "target_window": "Onmyoji",
+  "target_class": "Win32Window",
   "loop": false,
   "actions": [
     {

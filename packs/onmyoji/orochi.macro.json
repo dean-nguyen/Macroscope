@@ -3,6 +3,7 @@
   "description": "Auto-repeat Orochi. Resilient poll: STOPS on a verification/CAPTCHA screen (anti-ban), on a full inventory, and when AP or attempts run out. Dismisses confirm popups and reward screens on its own. Start it ON the activity screen.",
   "background": true,
   "target_window": "Onmyoji",
+  "target_class": "Win32Window",
   "loop": true,
   "loop_delay_ms": 2500,
   "actions": [

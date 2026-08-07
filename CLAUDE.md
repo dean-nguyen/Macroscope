@@ -98,9 +98,42 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   scanning for the best *score* (not the first rung over a threshold, which is what
   lets it be coarse), then a fine pass around the winner. ~21 matches for ~1.5%
   precision, where one ladder fine enough would need ~75 and stall 19 s. Searches
-  are rationed by time **per window size**, not per template, because the answer
-  generalises through `_window_scale`; they are never switched off, since "nothing
-  matched yet" is the normal state before an element appears.
+  are rationed by time and never switched off, since "nothing matched yet" is the
+  normal state before an element appears.
+- **`_claim_sweep` decides and claims in one lock, under three rules.** Two of them
+  replaced a design that looked right and starved the only template that could answer.
+  Check-and-claim is one acquisition because two let 8 threads start 4 concurrent
+  searches where the floor allows 1, and `run_folder` runs macros in parallel.
+  1. **One search at a time per window size** (floor: what the last one cost).
+  2. **A template waits out `_DISCOVERY_INTERVAL` after its own search.** Keeping that
+     clock per *window size* instead hands every slot to whichever template is scored
+     first. Measured against a live window at 0.44x: five templates scored in a row all
+     read "no match" because the first (absent) one spent the interval; the one whose
+     button was plainly visible scored **0.94** given a search of its own.
+  3. **The slot goes to whoever has waited longest**, never-searched counting as
+     forever. Rules 1 and 2 alone still starve everything past about
+     `_DISCOVERY_INTERVAL / tick` positions in scoring order, because templates already
+     in the rotation keep taking the slot from those behind them. Measured with this
+     pack's own order — 8 templates, the visible one scored last behind seven absent
+     guards, 1.1 s searches, 2.5 s poll: after 400 ticks the front six had swept 66-67
+     times each, the visible one **zero**, and it was never found. With rule 3: 8/8 and
+     17/17 templates served, found on tick 16 and 25, sweeps even.
+
+  Asking registers a template as waiting (`_seen`); one that is always refused must
+  still join the queue or it can never become the stalest. **Every pack macro checks
+  absent guard templates first, so this ordering is the ordinary case, not a corner** —
+  and it is why the pack only ever worked at exactly the capture size.
+- **The floor between two first-time searches is what the last search cost**
+  (`_sweep_cost`), never below `_SWEEP_FLOOR`. A fixed floor cannot serve both ends: a
+  search measured 1.1 s on a 1236x696 window and ~6.9 s on 2560x1380, so 1 s would let
+  eight templates spend 55 s inside a single 2.5 s tick on the big window — blind for a
+  minute, which is worse than converging a few seconds later. Measured with the adaptive
+  floor: one search per tick, the visible template found after 5 ticks, every later tick
+  back to 0.36 s.
+- **`set_unrationed_discovery()` is for `tools/` only.** Scoring a whole templates
+  directory in one pass is exactly the batch the floor exists to slow down, and a report
+  that says "no match" because the previous template spent the budget is worse than a
+  slow one. A macro must never turn it on.
 - **Do not add a downscaling pre-filter.** One was tried and removed. Shrinking both
   images before comparing only works when the element's position aligns with the
   sampling grid: the same button lost 0.0000 at a multiple-of-4 offset and 0.1181 one
@@ -125,6 +158,95 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   control comparing two WGC frames 50 ms apart reproduced most of that drift on
   its own, and comparing captures taken at different instants measures the game
   animating, not the backends differing.
+
+### Choosing which window a macro drives
+
+`target_window` is a case-insensitive substring, and a substring is not an identity. A
+macro set to `"Onmyoji"` resolved to a browser tab titled
+`(176) Onmyoji - 預選賽 … - YouTube` and posted its clicks into the browser — measured,
+while the game window `陰陽師Onmyoji` was open.
+
+- `background_input.find_all_windows` **ranks** candidates instead of taking whatever
+  `EnumWindows` reaches first: not a decorated tab or folder, then an exact title, then
+  the shortest remaining title.
+- **There is no "begins with the pattern" tier**, though it looks obvious. The game's
+  own title is `陰陽師Onmyoji`, which only *contains* the pattern, so a prefix tier
+  promoted `Onmyoji Launcher`, `Onmyoji - Google Search - Google Chrome` and
+  `Onmyoji Wiki | Fandom` above the game — the same defect wearing a different title.
+- **The tab/folder demotion applies only to a *decorated* title.** Demoting
+  `_TITLE_HOSTING_CLASSES` outright was measured picking a Notepad file called
+  `slack rollout notes.txt` over Slack itself: Electron is `Chrome_WidgetWin_1`, which
+  this file lists as a supported target, and an Electron app's window is titled just
+  `Slack` while a browser tab is always decorated. Demoted, never excluded — a window of
+  one of those classes that is the only match is still returned.
+- **This cannot always be right, and the code says so.** A folder titled exactly
+  `Onmyoji` still outranks a game titled `陰陽師Onmyoji`, because an exact title genuinely
+  is the stronger signal and nothing in a title or a class says which window is the
+  application. `tests/test_window_resolution.py` pins that outcome *and* shows
+  `target_class` settling it, rather than pretending the ranking solved it.
+- `target_class` is the reliable answer and the window picker records it alongside
+  `target_hwnd`, because the class outlives the handle: next session the hwnd is stale
+  and the title search takes over. A class that matches nothing is **dropped rather than
+  enforced** — an application that changes its window class in an update must not
+  silently stop being found, and picking the wrong window is the failure worth
+  preventing.
+- When several windows still match, `_resolve_hwnd` logs each candidate *with its class*
+  and says how to fix it. "Using topmost" does not tell a user their browser was chosen.
+
+### Capture-time template validation
+
+`engine/template_check.py` judges a crop *before* it is saved, from both capture paths
+(`gui/capture_wizard.py` and the editor's Capture Region), through the shared
+`gui/capture_review.py` dialog. It exists because the engine could only ever report a
+failure later, in a log, when the screen that would have explained it is gone.
+
+- **The bar for a featureless crop is the matcher's own** (`im.MIN_NEEDLE_STD`), so the
+  wizard cannot accept what `_load_needle` will reject. This is the only **blocker**;
+  the dialog offers no way to save one.
+- **Uniqueness is measured, not guessed.** `_cv_match_all` counts the crop's matches on
+  the screen it came from. A crop appearing five times is a warning, not a blocker,
+  because `find_all_and_click` is built on exactly that.
+- **Judge against the frame the crop came from, never a fresh grab.** A second grab of
+  an animating game is a different picture, and a crop that cannot find itself in it
+  looks like a bad crop rather than a late screenshot. So `RegionCapture` takes one
+  full-screen grab and crops the selection out of it, the way `tools/game_probe.py`
+  already did.
+- **That cropping trusts `SM_XVIRTUALSCREEN` to be the origin PIL used**, which PIL
+  does not expose, so the grab's size is checked against `SM_CXVIRTUALSCREEN` first and
+  `self.screen` is dropped rather than passed on wrong. Measured both ways on a
+  three-monitor desktop with a negative origin: with per-monitor DPI awareness (what
+  `main.py` declares) the metrics read `origin=(-2560,0) size=6400x2400`, the grab is
+  `6400x2400`, and cropping from it is **pixel-identical** to PIL's own bbox grab —
+  `max abs diff 0`, including a box on the negatively-offset monitor. Without DPI
+  awareness the metrics read `3584x1152` against the same `6400x2400` grab, and the
+  crop was garbage (`mean abs diff 149.8`). The size check is what turns that into a
+  fallback instead of a corrupted template.
+- **The collision threshold is `0.80` because that is what macros click at.** Two
+  templates scoring above it are interchangeable to the engine whatever they look like
+  to a person — measured: a plain `OK` button scored 0.91 against a completely
+  different button. Reporting below that bar would name collisions the engine could
+  never make.
+- **Cross-scoring runs the matcher's own two-stage search, in both directions.** It has
+  to: the check claims the engine cannot tell two crops apart, and the engine is
+  scale-aware. Comparing crops as stored missed a real duplicate twice in one session —
+  the Realm Raid attack button captured at 2840x1600 and at 1236x696 scored 0.31 as
+  stored and 0.85 across scales; and two captures of the same "Tap to continue" bar sit
+  at a ratio of 0.435, which falls *between* the 0.400 and 0.448 rungs, so the coarse
+  ladder alone still reported nothing and the fine pass was what reached 0.92.
+- **The check is not instant, and it grows with the templates directory.** Measured:
+  ~42 ms per already-captured template (worst 73 ms) plus ~0.7 s to scan a 6400x2400
+  screen — 1.4 s for a small pack, ~5 s for a large one. `gui/capture_review.py`
+  therefore runs it on a worker with a modal that says what it is doing, and shows
+  nothing at all if it finishes inside 350 ms, because a dialog that flashes is worse
+  than none.
+- **Past `_TOO_MANY_HITS` raw matches, stop counting.** Deduplicating is quadratic
+  (`_nms` is a Python double loop) and a small crop of ordinary screen content produces
+  thousands: on a real 6400x2400 desktop a 16 px crop hit 12779 positions, and one worst
+  case spent **57 s inside `_nms` alone** — a frozen capture dialog. Past a couple of
+  hundred hits the exact number tells the user nothing they cannot see, and the message
+  says "it is texture, not a thing" instead.
+- Re-capturing excludes the file being replaced (`capture_review.other_templates`), or
+  every re-capture would collide with the version it is replacing.
 
 ### Jitter and the stall guard
 
@@ -170,6 +292,11 @@ features and asking for them defeats the point.
     exact expected colour on every single tick.
   - A macro with no recognising action anywhere in its tree (`_can_recognise`) is not
     guarded at all — it recognises nothing by construction, so the guard has no signal.
+  It cannot see a macro that **recognises something and still makes no progress**.
+  Measured: a Realm Raid run pressed Refresh 23 times in 10 minutes without refreshing
+  anything, because a dialog it never answered was in the way — and `find_and_click`
+  matched Refresh every tick, so the clock reset every tick. That is a real gap in what
+  the guard can detect, not a bug in it; closing it needs a different signal.
   A stall records the macro in `_stalled`, so a sequential folder run can tell it from
   the user pressing Stop; both set the same event, and conflating them let one macro
   losing its screen cancel the rest of someone's dailies. `stall_timeout_ms` is coerced

@@ -3,6 +3,7 @@
   "description": "One-shot: clear the mailbox with Read All (which is what collects attachments on this client) and dismiss the reward screen. Open the MAILBOX first — this macro does not navigate.",
   "background": true,
   "target_window": "Onmyoji",
+  "target_class": "Win32Window",
   "loop": false,
   "actions": [
     {

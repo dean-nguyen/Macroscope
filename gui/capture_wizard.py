@@ -160,26 +160,40 @@ class CaptureWizard(tk.Toplevel):
                 w.withdraw()
             except tk.TclError:
                 pass
-        RegionCapture(
+        cap = RegionCapture(
             self._root,
-            lambda img, x, y, w, h: self._on_captured(name, img),
-        ).start()
+            lambda img, x, y, w, h: self._on_captured(name, img, cap),
+        )
+        cap.start()
 
-    def _on_captured(self, name: str, img):
+    def _on_captured(self, name: str, img, cap=None):
         for w in self._hidden:
             try:
                 w.deiconify()
             except tk.TclError:
                 pass
         self._hidden = []
-        if img is not None:
-            try:
-                self._templates_dir.mkdir(parents=True, exist_ok=True)
-                img.save(str(self._path_for(name)))
-            except Exception:
-                pass
-            if self._i < len(self._spec) - 1:
-                self._i += 1  # auto-advance after a successful capture
+        if img is None:
+            self._render()
+            return
+
+        # Judged before it is saved, against the same screen grab it came from.
+        # A crop that cannot work is worth catching here, while the game is still
+        # showing what the user was cropping, rather than in a log days later.
+        from gui.capture_review import other_templates, review_crop
+        if not review_crop(self, img,
+                           screen=getattr(cap, "screen", None),
+                           existing=other_templates(self._templates_dir, name)):
+            self._render()
+            return
+
+        try:
+            self._templates_dir.mkdir(parents=True, exist_ok=True)
+            img.save(str(self._path_for(name)))
+        except Exception:
+            pass
+        if self._i < len(self._spec) - 1:
+            self._i += 1  # auto-advance after a successful capture
         self._render()
 
     def _toplevel_chain(self) -> list:

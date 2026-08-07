@@ -232,6 +232,7 @@ class MacroEditor(tk.Toplevel):
         self._picker = PixelPicker(parent, self._on_pixel_picked)
         self._action_rows: List[Dict] = []
         self._target_hwnd: Optional[int] = None  # exact hwnd from window picker
+        self._target_class: Optional[str] = None  # its window class, which outlives it
 
         # Macro meta vars
         self._name_var       = tk.StringVar()
@@ -801,7 +802,7 @@ class MacroEditor(tk.Toplevel):
     # untouched on save — see _collect_macro.
     _FORM_KEYS = frozenset({
         "name", "description", "trigger", "loop", "loop_delay_ms",
-        "background", "target_window", "target_hwnd", "actions",
+        "background", "target_window", "target_hwnd", "target_class", "actions",
     })
 
     def _load_macro(self, macro: dict):
@@ -820,6 +821,7 @@ class MacroEditor(tk.Toplevel):
         self._bg_var.set(bool(macro.get("background", False)))
         self._target_var.set(macro.get("target_window", ""))
         self._target_hwnd = macro.get("target_hwnd", None)
+        self._target_class = macro.get("target_class", None)
 
         self._action_rows = []
         for action in macro.get("actions", []):
@@ -862,6 +864,8 @@ class MacroEditor(tk.Toplevel):
             macro["target_window"] = tgt
         if self._target_hwnd is not None:
             macro["target_hwnd"] = self._target_hwnd
+        if self._target_class:
+            macro["target_class"] = self._target_class
 
         macro["actions"] = self._collect_actions()
         return macro
@@ -924,8 +928,10 @@ class MacroEditor(tk.Toplevel):
         if not target:
             return None
         try:
+            # With the class, or testing a macro from the editor can drive a different
+            # window than running the saved macro does.
             from engine.background_input import find_window
-            hwnd = find_window(target)
+            hwnd = find_window(target, self._target_class)
             if hwnd is None:
                 messagebox.showwarning(
                     "Window not found",
@@ -942,12 +948,25 @@ class MacroEditor(tk.Toplevel):
     def _capture_region(self):
         from gui.region_capture import RegionCapture
         self.withdraw()
-        RegionCapture(self.master, self._on_region_captured).start()
+        cap = RegionCapture(
+            self.master,
+            lambda img, x, y, w, h: self._on_region_captured(img, x, y, w, h, cap),
+        )
+        cap.start()
 
-    def _on_region_captured(self, img, x, y, w, h):
+    def _on_region_captured(self, img, x, y, w, h, cap=None):
         self.deiconify()
         if img is None:
             return
+
+        # Same check the guided wizard runs: a crop that is featureless, that is not
+        # unique on its own screen, or that the engine could not tell from a template
+        # already captured, is worth saying now rather than in a log later.
+        from gui.capture_review import other_templates, review_crop
+        if not review_crop(self, img, screen=getattr(cap, "screen", None),
+                           existing=other_templates(TEMPLATES_DIR)):
+            return
+
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
         # Ask for a meaningful name so templates aren't anonymous timestamps.
@@ -992,6 +1011,11 @@ class MacroEditor(tk.Toplevel):
         """Called when user selects a window from the picker."""
         self._target_var.set(title)
         self._target_hwnd = hwnd
+        # The class outlives the handle: next session the hwnd is stale and the
+        # title search takes over, and the class is what stops that search
+        # picking something that merely mentions the app in its title.
+        from engine.background_input import window_class_of
+        self._target_class = window_class_of(hwnd) or None
         self._bg_var.set(True)
 
     # ── save / close ───────────────────────────────────────────────────────────

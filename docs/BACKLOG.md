@@ -23,18 +23,19 @@ whether the project is useful to anyone else, and everything a user touches live
 | # | Task | Status | Notes |
 |---|---|---|---|
 | E1.1 | Engine survives a half-captured pack | done | Missing templates degrade to no-match and are listed per run |
-| E1.2 | Matching survives a different window size | done | Two-stage scale search; verified 0.5x–2x on a live window |
+| E1.2 | Matching survives a different window size | done | Two-stage scale search; verified 0.5x–2x on a live window. Live use then showed the search was **never reached** in a real macro, because the ration was per window size and absent guard templates spent it first — fixed, and that is why the pack only ever worked at exactly the capture size |
 | E1.3 | Thresholds and the WGC allowance set from measurement | done | `docs/prd/scoring-from-measurement.md` |
 | E1.4 | All features work with no licence or tier | done | ~1550 lines of licensing removed |
-| E1.5 | **Validate a template at capture time** | todo | Score it against the screen *and against existing templates*, in the wizard. Would have caught a plain `OK` scoring 0.91 against a different button. The single highest-value UX item |
-| E1.6 | **Warn on a crop that cannot work** | todo | Flat crops already raise `TemplateUnusable` in the engine — the wizard must say so while the user is still cropping |
+| E1.5 | **Validate a template at capture time** | done | `engine/template_check.py`, shown by `gui/capture_review.py` from both capture paths. Counts the crop's matches on the screen it came from (measured, not guessed from its size) and cross-scores it against every template already captured at `0.80` — the threshold macros click at, so a reported collision is one the engine could actually make |
+| E1.6 | **Warn on a crop that cannot work** | done | A crop below `im.MIN_NEEDLE_STD` is the one blocker: the dialog offers no way to save what the matcher will refuse. `tools/game_probe.py crop` prints the same findings, so the CLI is not held to a looser bar |
 | E1.7 | Author macros without editing JSON | todo | The main barrier for a non-technical user. A recorder ("do it once, replay it") is the conventional answer |
 | E1.8 | An onboarding path per application | todo | Pick window → record or capture → test → run |
 | E1.9 | Move `match_report` into the app | todo | "Why doesn't my template match?" is currently answerable only from a CLI in `tools/` |
 | E1.10 | The editor silently dropped `humanize` and `stall_timeout_ms` | done | `_collect_macro` built the dict from scratch, so any macro-level key the form does not show was deleted on save. It now carries through everything outside `_FORM_KEYS`. Giving the two fields their own controls is E1.13 |
-| E1.13 | Controls for `humanize` and `stall_timeout_ms` in the editor | todo | They round-trip now (E1.10) but are still hand-edited. Worth a row in the form once the wording is settled |
 | E1.11 | `stop` is unreachable from the action picker | todo | It is in `_F` but not in any `_GROUPS` row, so it never renders. Every shipped pack uses it, but a user writing their own macro cannot add it without editing JSON |
 | E1.12 | `scroll` `amount` means different things in the two modes | todo | Background posts `amount * WHEEL_DELTA` (3 = three notches); foreground hands `amount` to `pyautogui.scroll`, which passes it to `mouse_event` as a raw delta where a notch is 120 — so the editor's default of `3` is 3/120 of a notch and does nothing. Read from the code, not yet measured against an application |
+| E1.13 | Controls for `humanize` and `stall_timeout_ms` in the editor | todo | They round-trip now (E1.10) but are still hand-edited. Worth a row in the form once the wording is settled |
+| E1.14 | `target_window` picked the wrong window | done | `"Onmyoji"` also matched a YouTube tab and a macro posted a click into the browser. Candidates are ranked now, and the picker records `target_class` because the class outlives the handle. Covered by `tests/test_window_resolution.py` |
 
 ## E2 — Behave safely by default
 
@@ -46,6 +47,8 @@ that make the tool honest about that, and they are generic rather than per-game.
 | E2.1 | **Randomise timing and click position** | done | `engine/humanize.py`, covered by `tests/test_humanize.py`. Delays scatter by a *fraction* (±15%) rather than a fixed offset, so a short settle and a 2500 ms poll both stay sensible; clicks scatter by 3 px, capped at a quarter of the smaller side of the element **as matched** (`image_matcher.Match` carries that size — the file's size is wrong, since matching is scale-aware) and clamped inside the client area, because 3 px on a click at `xp: 0.999` left a 1280×720 client area 39 times out of 60. On by default — `"humanize": false` opts out. Scope is narrower than "timing": only `wait.ms` and `loop_delay_ms`, not `type.interval`, `poll_ms` or `click_delay`. Does **not** make automation undetectable; it removes the trivially obvious signature |
 | E2.2 | **Stop on an unexpected screen** | done | A looping macro that spends `stall_timeout_ms` (default 5 min, `0` disables) *sending input* without recognising anything stops and logs why. Template-free, so it also catches disconnects, maintenance and a changed UI. The condition is "clicking blind", not "matching nothing": a macro that recognises nothing and clicks nothing is a watcher and is left alone, any kind of recognition counts (template, pixel, rect), and a macro with no recognising action is never guarded. Covered by `tests/test_humanize.py` |
 | E2.3 | Session limits and breaks | todo | Cap unattended run length; pause rather than grind forever |
+| E2.5 | The stall guard cannot see "recognises something, makes no progress" | todo | Measured: a Realm Raid run pressed Refresh 23 times in 10 minutes without refreshing anything, and the guard never fired because `find_and_click` matched Refresh on every tick. A real gap in what the guard can detect, not a bug in it. Needs a different signal — perhaps "the same recognition, repeatedly, with nothing else changing" |
+| E2.6 | A macro whose outer guard never matches is a silent no-op | todo | Both raid macros wrap their body in "am I on the list screen", so a tick that fails that check sends no input — and the stall guard's condition is *clicking* blind, so nothing stops it. Safe (no unintended clicks) and visible in the log, but it will loop forever without a word in the UI. Wants a "this macro has done nothing at all for N minutes" notice, distinct from the stall stop |
 | E2.4 | Document where the input method cannot work | done | `CLAUDE.md` — raw input, DirectInput, kernel anti-cheat |
 
 ## E3 — The project reads as a project
@@ -77,9 +80,13 @@ something real, and it is what the engine was developed against.
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| E5.1 | Capture the 9 outstanding templates | todo | `onmyoji_captcha.png` no longer gates safety — E2.2 stops on an unrecognised screen without it. Capture it for the *specific* log line, not as the only backstop |
-| E5.2 | Run the pack against the live game, end to end | todo | `docs/prd/pack-live-validation.md`. Never done |
+| E5.1 | Capture the outstanding templates | todo | 10 of 17 left, all opportunistic: captcha, defeat, level_up, inventory_full, out_of_stamina, no_attempts, guild_no_wins, reconnect_retry, challenge_again, signin_claim. `onmyoji_captcha.png` no longer gates safety — E2.2 stops on an unrecognised screen without it. Capture it for the *specific* log line, not as the only backstop |
+| E5.7 | An existing install never receives the new raid macros | todo | `paths.seed_starter_macros` is first-run-only behind `.starter_seeded`, so an install from before today keeps the deleted `Onmyoji - Realm Raid.json` — the version that looked for the Attack button on a screen where it does not exist — and gets neither replacement. Needs a re-seed path, or at least a log line naming pack macros that are newer than what is installed |
+| E5.2 | Run the pack against the live game, end to end | doing | **Realm Raid done** — `docs/prd/pack-live-validation.md` records six defects it found, four of them in the engine, and the three cycles that then ran clean. The AP farms (soul-farming, exploration) and a real stop-guard firing are still outstanding |
 | E5.3 | Decide what `signin_claim` should be | todo | Event-dependent; the button moves when events rotate |
+| E5.4 | Realm Raid is two macros now | done | The Individual list is a fixed 3x3 grid with a Refresh button; the Guild list is a scrolling two-column member list with its own `Win(s)` counter and no Refresh. Generated by `packs/onmyoji/build_raid_macros.py`, because the target-selection chain nests one level per cell and hand-editing eleven levels is how a branch silently never runs |
+| E5.5 | Validate the Guild raid live | todo | Blocked when tried: the account's daily `Win(s)` were already 6/6. Needs a day with wins left |
+| E5.6 | Reach Guild members below the sixth | blocked | The Guild list scrolls and only six members are clickable without scrolling. Same unresolved question as the open one below |
 
 ---
 

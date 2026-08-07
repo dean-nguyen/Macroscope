@@ -1,0 +1,507 @@
+{
+  "name": "Onmyoji - Realm Raid (Guild)",
+  "description": "Raid the Guild member list: selects the Guild tab, opens each visible member in turn and attacks the first that offers an Attack button, then clears the result. Covers the six members visible without scrolling — the guild list scrolls and this input method has not been shown to scroll it. STOPS on a verification screen, a full inventory, or when the daily wins are used up.",
+  "background": true,
+  "target_window": "Onmyoji",
+  "target_class": "Win32Window",
+  "loop": true,
+  "loop_delay_ms": 2500,
+  "actions": [
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_captcha.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_inventory_full.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_guild_no_wins.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_reconnect_retry.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_level_up.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "click",
+          "xp": 0.593,
+          "yp": 0.6063
+        },
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_defeat.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "click",
+          "xp": 0.593,
+          "yp": 0.6063
+        },
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_reward_confirm.png",
+      "threshold": 0.76,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_realmraid_guild_progress.png",
+      "threshold": 0.8,
+      "on_not_found": [
+        {
+          "type": "image_check",
+          "template": "templates/onmyoji_realmraid_refresh.png",
+          "threshold": 0.8,
+          "on_found": [
+            {
+              "type": "click",
+              "xp": 0.9652,
+              "yp": 0.6422
+            },
+            {
+              "type": "wait",
+              "ms": 1200
+            },
+            {
+              "type": "image_check",
+              "template": "templates/onmyoji_realmraid_guild_progress.png",
+              "threshold": 0.8,
+              "on_not_found": [
+                {
+                  "type": "click",
+                  "xp": 0.9652,
+                  "yp": 0.6422
+                },
+                {
+                  "type": "wait",
+                  "ms": 1200
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_realmraid_guild_progress.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "click",
+          "xp": 0.4531,
+          "yp": 0.2802
+        },
+        {
+          "type": "wait",
+          "ms": 1500
+        },
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_realmraid_attack.png",
+          "threshold": 0.8,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 6000
+            },
+            {
+              "type": "image_wait",
+              "template": "templates/onmyoji_reward_confirm.png",
+              "threshold": 0.76,
+              "timeout_ms": 180000,
+              "poll_ms": 2000
+            },
+            {
+              "type": "find_and_click",
+              "template": "templates/onmyoji_reward_confirm.png",
+              "threshold": 0.76,
+              "on_found": [
+                {
+                  "type": "wait",
+                  "ms": 2500
+                }
+              ],
+              "on_not_found": []
+            },
+            {
+              "type": "find_and_click",
+              "template": "templates/onmyoji_reward_confirm.png",
+              "threshold": 0.76,
+              "on_found": [
+                {
+                  "type": "wait",
+                  "ms": 1500
+                }
+              ],
+              "on_not_found": []
+            },
+            {
+              "type": "image_wait",
+              "template": "templates/onmyoji_realmraid_guild_progress.png",
+              "threshold": 0.8,
+              "timeout_ms": 30000,
+              "poll_ms": 1500
+            }
+          ],
+          "on_not_found": [
+            {
+              "type": "click",
+              "xp": 0.7217,
+              "yp": 0.2802
+            },
+            {
+              "type": "wait",
+              "ms": 1500
+            },
+            {
+              "type": "find_and_click",
+              "template": "templates/onmyoji_realmraid_attack.png",
+              "threshold": 0.8,
+              "on_found": [
+                {
+                  "type": "wait",
+                  "ms": 6000
+                },
+                {
+                  "type": "image_wait",
+                  "template": "templates/onmyoji_reward_confirm.png",
+                  "threshold": 0.76,
+                  "timeout_ms": 180000,
+                  "poll_ms": 2000
+                },
+                {
+                  "type": "find_and_click",
+                  "template": "templates/onmyoji_reward_confirm.png",
+                  "threshold": 0.76,
+                  "on_found": [
+                    {
+                      "type": "wait",
+                      "ms": 2500
+                    }
+                  ],
+                  "on_not_found": []
+                },
+                {
+                  "type": "find_and_click",
+                  "template": "templates/onmyoji_reward_confirm.png",
+                  "threshold": 0.76,
+                  "on_found": [
+                    {
+                      "type": "wait",
+                      "ms": 1500
+                    }
+                  ],
+                  "on_not_found": []
+                },
+                {
+                  "type": "image_wait",
+                  "template": "templates/onmyoji_realmraid_guild_progress.png",
+                  "threshold": 0.8,
+                  "timeout_ms": 30000,
+                  "poll_ms": 1500
+                }
+              ],
+              "on_not_found": [
+                {
+                  "type": "click",
+                  "xp": 0.4531,
+                  "yp": 0.4713
+                },
+                {
+                  "type": "wait",
+                  "ms": 1500
+                },
+                {
+                  "type": "find_and_click",
+                  "template": "templates/onmyoji_realmraid_attack.png",
+                  "threshold": 0.8,
+                  "on_found": [
+                    {
+                      "type": "wait",
+                      "ms": 6000
+                    },
+                    {
+                      "type": "image_wait",
+                      "template": "templates/onmyoji_reward_confirm.png",
+                      "threshold": 0.76,
+                      "timeout_ms": 180000,
+                      "poll_ms": 2000
+                    },
+                    {
+                      "type": "find_and_click",
+                      "template": "templates/onmyoji_reward_confirm.png",
+                      "threshold": 0.76,
+                      "on_found": [
+                        {
+                          "type": "wait",
+                          "ms": 2500
+                        }
+                      ],
+                      "on_not_found": []
+                    },
+                    {
+                      "type": "find_and_click",
+                      "template": "templates/onmyoji_reward_confirm.png",
+                      "threshold": 0.76,
+                      "on_found": [
+                        {
+                          "type": "wait",
+                          "ms": 1500
+                        }
+                      ],
+                      "on_not_found": []
+                    },
+                    {
+                      "type": "image_wait",
+                      "template": "templates/onmyoji_realmraid_guild_progress.png",
+                      "threshold": 0.8,
+                      "timeout_ms": 30000,
+                      "poll_ms": 1500
+                    }
+                  ],
+                  "on_not_found": [
+                    {
+                      "type": "click",
+                      "xp": 0.7217,
+                      "yp": 0.4713
+                    },
+                    {
+                      "type": "wait",
+                      "ms": 1500
+                    },
+                    {
+                      "type": "find_and_click",
+                      "template": "templates/onmyoji_realmraid_attack.png",
+                      "threshold": 0.8,
+                      "on_found": [
+                        {
+                          "type": "wait",
+                          "ms": 6000
+                        },
+                        {
+                          "type": "image_wait",
+                          "template": "templates/onmyoji_reward_confirm.png",
+                          "threshold": 0.76,
+                          "timeout_ms": 180000,
+                          "poll_ms": 2000
+                        },
+                        {
+                          "type": "find_and_click",
+                          "template": "templates/onmyoji_reward_confirm.png",
+                          "threshold": 0.76,
+                          "on_found": [
+                            {
+                              "type": "wait",
+                              "ms": 2500
+                            }
+                          ],
+                          "on_not_found": []
+                        },
+                        {
+                          "type": "find_and_click",
+                          "template": "templates/onmyoji_reward_confirm.png",
+                          "threshold": 0.76,
+                          "on_found": [
+                            {
+                              "type": "wait",
+                              "ms": 1500
+                            }
+                          ],
+                          "on_not_found": []
+                        },
+                        {
+                          "type": "image_wait",
+                          "template": "templates/onmyoji_realmraid_guild_progress.png",
+                          "threshold": 0.8,
+                          "timeout_ms": 30000,
+                          "poll_ms": 1500
+                        }
+                      ],
+                      "on_not_found": [
+                        {
+                          "type": "click",
+                          "xp": 0.4531,
+                          "yp": 0.6609
+                        },
+                        {
+                          "type": "wait",
+                          "ms": 1500
+                        },
+                        {
+                          "type": "find_and_click",
+                          "template": "templates/onmyoji_realmraid_attack.png",
+                          "threshold": 0.8,
+                          "on_found": [
+                            {
+                              "type": "wait",
+                              "ms": 6000
+                            },
+                            {
+                              "type": "image_wait",
+                              "template": "templates/onmyoji_reward_confirm.png",
+                              "threshold": 0.76,
+                              "timeout_ms": 180000,
+                              "poll_ms": 2000
+                            },
+                            {
+                              "type": "find_and_click",
+                              "template": "templates/onmyoji_reward_confirm.png",
+                              "threshold": 0.76,
+                              "on_found": [
+                                {
+                                  "type": "wait",
+                                  "ms": 2500
+                                }
+                              ],
+                              "on_not_found": []
+                            },
+                            {
+                              "type": "find_and_click",
+                              "template": "templates/onmyoji_reward_confirm.png",
+                              "threshold": 0.76,
+                              "on_found": [
+                                {
+                                  "type": "wait",
+                                  "ms": 1500
+                                }
+                              ],
+                              "on_not_found": []
+                            },
+                            {
+                              "type": "image_wait",
+                              "template": "templates/onmyoji_realmraid_guild_progress.png",
+                              "threshold": 0.8,
+                              "timeout_ms": 30000,
+                              "poll_ms": 1500
+                            }
+                          ],
+                          "on_not_found": [
+                            {
+                              "type": "click",
+                              "xp": 0.7217,
+                              "yp": 0.6609
+                            },
+                            {
+                              "type": "wait",
+                              "ms": 1500
+                            },
+                            {
+                              "type": "find_and_click",
+                              "template": "templates/onmyoji_realmraid_attack.png",
+                              "threshold": 0.8,
+                              "on_found": [
+                                {
+                                  "type": "wait",
+                                  "ms": 6000
+                                },
+                                {
+                                  "type": "image_wait",
+                                  "template": "templates/onmyoji_reward_confirm.png",
+                                  "threshold": 0.76,
+                                  "timeout_ms": 180000,
+                                  "poll_ms": 2000
+                                },
+                                {
+                                  "type": "find_and_click",
+                                  "template": "templates/onmyoji_reward_confirm.png",
+                                  "threshold": 0.76,
+                                  "on_found": [
+                                    {
+                                      "type": "wait",
+                                      "ms": 2500
+                                    }
+                                  ],
+                                  "on_not_found": []
+                                },
+                                {
+                                  "type": "find_and_click",
+                                  "template": "templates/onmyoji_reward_confirm.png",
+                                  "threshold": 0.76,
+                                  "on_found": [
+                                    {
+                                      "type": "wait",
+                                      "ms": 1500
+                                    }
+                                  ],
+                                  "on_not_found": []
+                                },
+                                {
+                                  "type": "image_wait",
+                                  "template": "templates/onmyoji_realmraid_guild_progress.png",
+                                  "threshold": 0.8,
+                                  "timeout_ms": 30000,
+                                  "poll_ms": 1500
+                                }
+                              ],
+                              "on_not_found": [
+                                {
+                                  "type": "wait",
+                                  "ms": 1200
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

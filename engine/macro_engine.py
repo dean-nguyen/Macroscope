@@ -569,18 +569,25 @@ class MacroEngine:
         """Pin a concrete, valid hwnd for this macro run.
 
         When ``target_hwnd`` is stale (from a previous session) or absent,
-        resolves via ``target_window``.  If multiple windows share the
-        same title, picks the **topmost** one (most recently interacted).
-        Logs a clear message so the user knows which window was selected.
+        resolves via ``target_window``, preferring a window of ``target_class``
+        and then the title that most closely *is* the target (see
+        ``background_input.find_all_windows``).
+
+        Every candidate is logged with its class when there is more than one,
+        because a substring can match something that is not the application at
+        all — "Onmyoji" also matches a YouTube tab, and a macro that resolved to
+        it posted its clicks into the browser.
         """
         target      = macro.get("target_window", "").strip()
         target_hwnd = macro.get("target_hwnd", None)
+        target_class = (macro.get("target_class") or "").strip() or None
 
         if not target and not target_hwnd:
             return None  # no window targeting
 
         try:
-            from engine.background_input import find_all_windows, is_window_valid
+            from engine.background_input import (find_all_windows, is_window_valid,
+                                                 window_class_of)
 
             # Saved hwnd still alive?
             if target_hwnd and is_window_valid(target_hwnd):
@@ -589,20 +596,20 @@ class MacroEngine:
             # Fall back to title search.
             if not target:
                 return None
-            matches = find_all_windows(target)
+            matches = find_all_windows(target, target_class)
             if not matches:
                 return None
+            hwnd, title = matches[0]
             if len(matches) == 1:
-                hwnd = matches[0][0]
-                self._log(f"[ctx] resolved '{target}' → hwnd {hwnd}")
+                self._log(f"[ctx] resolved '{target}' → hwnd {hwnd} '{title}'")
                 return hwnd
 
-            # Multiple windows — pick the topmost (first in z-order).
-            hwnd, title = matches[0]
+            others = ", ".join(f"'{t}' [{window_class_of(h)}]" for h, t in matches[1:4])
             self._log(
-                f"[ctx] {len(matches)} windows match '{target}' — "
-                f"using topmost (hwnd {hwnd}, "
-                f"click target window first to change)"
+                f"[ctx] {len(matches)} windows match '{target}' — using "
+                f"'{title}' [{window_class_of(hwnd)}] (hwnd {hwnd}). Also matched: "
+                f"{others}. If that is the wrong one, pick the window in the editor "
+                f"so the macro stores target_hwnd and target_class."
             )
             return hwnd
         except Exception:
@@ -633,6 +640,7 @@ class MacroEngine:
         background  = macro.get("background", False)
         target      = macro.get("target_window", "").strip()
         target_hwnd = macro.get("target_hwnd", None)
+        target_class = (macro.get("target_class") or "").strip() or None
 
         # ── Resolve the target window (shared by all modes) ────────────────────
         anchor_hwnd = None
@@ -650,7 +658,7 @@ class MacroEngine:
                     hwnd = target_hwnd
                 # Fall back to title-based search
                 if hwnd is None and target:
-                    hwnd = find_window(target)
+                    hwnd = find_window(target, target_class)
 
                 if hwnd:
                     anchor_hwnd = hwnd

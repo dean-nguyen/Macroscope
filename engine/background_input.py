@@ -23,28 +23,94 @@ import win32gui
 
 # ── window helpers ────────────────────────────────────────────────────────────
 
-def find_window(title_pattern: str) -> Optional[int]:
+def find_window(title_pattern: str, window_class: Optional[str] = None) -> Optional[int]:
     """
-    Return the HWND of the first visible window whose title contains
-    `title_pattern` (case-insensitive).  Returns None if not found.
+    Return the HWND of the best visible window matching `title_pattern`
+    (case-insensitive substring), or None.
+
+    "Best" is defined by find_all_windows, which ranks candidates rather than
+    taking whatever EnumWindows happens to reach first.
     """
-    pattern = title_pattern.lower()
-    result = []
-
-    def _cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            t = win32gui.GetWindowText(hwnd).lower()
-            if pattern in t:
-                result.append(hwnd)
-
-    win32gui.EnumWindows(_cb, None)
-    return result[0] if result else None
+    matches = find_all_windows(title_pattern, window_class)
+    return matches[0][0] if matches else None
 
 
-def find_all_windows(title_pattern: str) -> List[Tuple[int, str]]:
+def window_class_of(hwnd: int) -> str:
+    """The window's class name, or "" if it cannot be read."""
+    try:
+        return win32gui.GetClassName(hwnd) or ""
+    except Exception:
+        return ""
+
+
+# Window classes that host content the user opened — a tab, a document, a folder —
+# rather than being an application whose name is its title.
+#
+# Demoted only when the title is **decorated**, i.e. not exactly the pattern. That
+# distinction is what keeps the rule from trading one wrong window for another: a
+# browser tab is always decorated ("… - YouTube", "… - Google Chrome"), while an
+# Electron app's window is titled just "Slack". Demoting the whole class outright was
+# measured picking a Notepad file called "slack rollout notes.txt" over Slack itself,
+# and Electron is Chrome_WidgetWin_1, which CLAUDE.md lists as a supported target.
+#
+# Never excluded, only reordered: a window of one of these classes that is the only
+# match is still returned.
+_TITLE_HOSTING_CLASSES = frozenset({
+    "Chrome_WidgetWin_1",           # Chrome, Edge, Electron
+    "Chrome_WidgetWin_0",
+    "MozillaWindowClass",           # Firefox
+    "CabinetWClass",                # File Explorer
+    "ApplicationFrameWindow",       # UWP host
+    "Windows.UI.Core.CoreWindow",
+    "Progman", "WorkerW",           # the desktop itself
+})
+
+
+def _match_rank(hwnd: int, title: str, pattern: str) -> tuple:
+    """Sort key for one candidate window. Lower is better.
+
+    A bare substring search is not enough to identify an application: the title
+    "Onmyoji" also matches a browser tab called
+    "(176) Onmyoji - 預選賽 … - YouTube", and a macro that resolved to that tab posted
+    its clicks into the browser. Measured, not hypothetical.
+
+    Ranked by how much of the window's identity the pattern accounts for: not a
+    decorated tab or folder first, then an exact title, then the shortest title. A
+    window whose name *is* the application carries little else, while a tab decorates
+    its title with content and the app's own name.
+
+    There is deliberately **no** "begins with the pattern" tier. It looks obvious and
+    it inverts real cases: the game's own title is "陰陽師Onmyoji", which only
+    *contains* the pattern, so a prefix tier promoted "Onmyoji Launcher", "Onmyoji -
+    Google Search - Google Chrome" and "Onmyoji Wiki | Fandom" above the game — the
+    same defect this ranking exists to fix, wearing a different title.
+
+    **This cannot always be right.** A folder named exactly "Onmyoji" still outranks a
+    game titled "陰陽師Onmyoji", because an exact title is genuinely the stronger
+    signal and nothing in a title or a class says which window is the application.
+    Ranking is only a fallback for a hand-typed name; `window_class`, which the window
+    picker records, is the reliable answer.
     """
-    Return ALL visible windows matching `title_pattern` (case-insensitive).
-    Returns [(hwnd, title), …].
+    exact = title.lower() == pattern
+    decorated_content = (not exact) and window_class_of(hwnd) in _TITLE_HOSTING_CLASSES
+    return (1 if decorated_content else 0,
+            0 if exact else 1,
+            len(title))
+
+
+def find_all_windows(
+    title_pattern: str,
+    window_class: Optional[str] = None,
+) -> List[Tuple[int, str]]:
+    """
+    Return visible windows matching `title_pattern` (case-insensitive substring),
+    best first. Returns [(hwnd, title), …].
+
+    When `window_class` is given, windows of another class are excluded — unless
+    that leaves nothing, in which case the filter is dropped. An application that
+    changes its window class in an update should not silently stop being found;
+    picking a wrong window is the failure worth preventing, and the caller logs
+    which one it took.
     """
     pattern = title_pattern.lower()
     result = []
@@ -56,7 +122,14 @@ def find_all_windows(title_pattern: str) -> List[Tuple[int, str]]:
                 result.append((hwnd, t))
 
     win32gui.EnumWindows(_cb, None)
-    return result
+
+    if window_class:
+        same_class = [m for m in result if window_class_of(m[0]) == window_class]
+        if same_class:
+            result = same_class
+
+    # sorted() is stable, so windows of equal rank keep their z-order.
+    return sorted(result, key=lambda m: _match_rank(m[0], m[1], pattern))
 
 
 def is_window_valid(hwnd: int) -> bool:
