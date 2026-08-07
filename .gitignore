@@ -221,7 +221,6 @@ _debug_*.png
 .claude/*
 !.claude/agents/
 !.claude/settings.json
-=4.5
 templates/
 macros/
 

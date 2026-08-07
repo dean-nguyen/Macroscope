@@ -15,7 +15,11 @@ python main.py
 python -u main.py
 ```
 
-No build step, no test runner, no linter configured. The project is pure Python.
+Pure Python — no build step to run the app, and no linter configured. Tests are pytest
+(`pip install -r requirements-dev.txt`, then `python -m pytest tests/`; config in
+`pytest.ini`). `.github/workflows/ci.yml` runs them plus `tools/import_check.py` on
+every push to `main` and every PR; `release.yml` builds the `.exe` with Nuitka on a
+`v*` tag.
 
 ## Architecture
 
@@ -33,7 +37,7 @@ engine/
   hotkey_listener.py     Wraps the `keyboard` library for global hotkey registration
 gui/
   app.py                 Main tkinter window — macro list, log panel, header controls
-  editor.py              Toplevel editor window — JSON text editor + action snippet sidebar
+  editor.py              Toplevel editor window — visual form per action, JSON sub-editor for branch lists
   picker.py              Full-screen transparent overlay for picking pixel coordinates
   region_capture.py      Full-screen overlay for drag-to-select screen region capture
   arranger.py            Window Arranger dialog — select windows and tile them in a grid
@@ -56,8 +60,8 @@ User-created data (macros, template images) is stored under `%APPDATA%/Macroscop
 
 ### Data flow
 
-1. `App._reload_macros()` calls `MacroEngine.load_all()` which reads every `macros/*.json`.
-2. Macros with a `trigger.hotkey` are registered with `HotkeyListener`.
+1. `App._reload_macros()` calls `MacroEngine.load_all()` which reads every `*.json` under `macros/`, recursively — a macro's subfolder becomes its runtime-only `_folder`.
+2. Macros whose `trigger` is `{"type": "hotkey", "keys": [...]}` are registered with `HotkeyListener`. The hotkey toggles: it starts the macro, or stops it if running.
 3. When triggered (hotkey or play button), `MacroEngine.run(name)` spawns a daemon thread.
 4. The thread calls `_execute()` -> iterates `actions` -> dispatches each to `action_runner.run_action()`.
 5. `run_action()` receives a context dict (`ctx`) with optional `hwnd` for background mode. When `hwnd` is set, mouse/keyboard actions route through `background_input.py` (Win32 PostMessage) instead of pyautogui.
@@ -72,13 +76,15 @@ Macros with `"background": true` and a `"target_window"` title substring route a
 
 All action types recognized by the engine (registered in both `action_runner.py` handlers and `macro_engine.py` `_REQUIRED_ACTION_FIELDS`):
 
-`move`, `click`, `double_click`, `right_click`, `drag`, `scroll`, `key`, `type`, `wait`, `pixel_wait`, `pixel_check`, `find_and_click`, `image_wait`, `image_check`, `find_rects_and_click`, `find_all_and_click`
+`move`, `click`, `double_click`, `right_click`, `drag`, `scroll`, `key`, `type`, `wait`, `stop`, `pixel_wait`, `pixel_check`, `find_and_click`, `image_wait`, `image_check`, `find_rects_and_click`, `find_all_and_click`
+
+Every field of every one of them, with the real defaults, is in `docs/SCHEMA.md`.
 
 Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_and_click`) use `image_matcher.py` (OpenCV `matchTemplate`). `find_rects_and_click` uses `rect_detector.py` (OpenCV contour analysis).
 
 ### Image matching behaviour
 
-`engine/image_matcher.py` carries four behaviours worth knowing before touching it:
+`engine/image_matcher.py` carries six behaviours worth knowing before touching it:
 
 - **Uncaptured templates degrade, they don't crash.** A missing file raises
   `TemplateMissing` (a `FileNotFoundError` subclass); `action_runner._safe_find`
@@ -120,13 +126,74 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   its own, and comparing captures taken at different instants measures the game
   animating, not the backends differing.
 
+### Jitter and the stall guard
+
+Both live behind per-macro fields and are **on by default**, because they are safety
+features and asking for them defeats the point.
+
+- `engine/humanize.py` scatters delays by a *fraction* (±15%, so a 300 ms settle and a
+  2500 ms poll both stay sensible) and click points by a radius in pixels (3 by
+  default). It reaches exactly two delays: `wait.ms` and the macro's `loop_delay_ms`.
+  Every other interval in the schema — `type.interval`, the `poll_ms` of `pixel_wait`
+  and `image_wait`, `click_delay`, `click.interval`, `move`/`drag` `duration` — is used
+  as written, so do not describe the whole macro's timing as randomised.
+  Settings reach the runner through `ctx["humanize"]`; a bare `run_action` call with no
+  ctx does exactly what the action says, which is what tests and `tools/` want.
+  `"humanize": false` disables it (so do `0` and `""`); `{"timing_pct": …,
+  "click_px": …}` tunes it, and either may be `0` on its own. Seed with
+  `humanize.seed()` in tests — it owns its own `Random` so nothing else can disturb it.
+- **A jittered click is clamped, and bounded by the match.** `_scatter` jitters, then
+  keeps the point inside the client area: 3 px on a click at `xp: 0.999` left a
+  1280×720 client area 39 times out of 60, and outside the client area a posted click
+  is silently dropped while the real cursor lands on a pyautogui failsafe corner —
+  which aborts the *next* pyautogui call. An exact coordinate is never clamped; only
+  jitter is ours to contain. Callers that matched something pass
+  `max_px=_bound_of(match)`, a quarter of the size the template **matched at**, which
+  `image_matcher.Match` carries alongside `(cx, cy, score)`. The template file's own
+  size is the wrong bound: matching is scale-aware, so a 40×40 template matches a 20×20
+  element on a half-size window. `_click(…, jittered=True)` is a keyword rather than a
+  field in the action, because a flag living in the action dict is spoofable from a
+  user's JSON and survives being saved.
+- **Stall guard.** `_execute` stops a looping macro that has been *sending input* for
+  `stall_timeout_ms` (default 5 minutes; `0` disables) without recognising anything.
+  It replaces the per-game CAPTCHA template as the primary safety stop, because it
+  needs no template and so also catches disconnects, maintenance and a changed UI.
+  Three details keep it from firing on macros that work, and each replaced a
+  plausible-sounding rule that measurement killed:
+  - The condition is **clicking blind**, not matching nothing. A macro that recognises
+    nothing and clicks nothing is a watcher waiting for an element to appear — the
+    normal state, exactly as `image_matcher` says of scale search — so stopping it
+    would be a false positive. `_sent_input(ctx)` marks the handlers that act.
+  - Recognition is **any** kind: `_recognised(ctx)` is called from `_safe_find`, from a
+    matched `pixel_check`, from a successful `pixel_wait`, and from detected rects.
+    Setting it only on template matches stopped a loop whose `pixel_check` matched its
+    exact expected colour on every single tick.
+  - A macro with no recognising action anywhere in its tree (`_can_recognise`) is not
+    guarded at all — it recognises nothing by construction, so the guard has no signal.
+  A stall records the macro in `_stalled`, so a sequential folder run can tell it from
+  the user pressing Stop; both set the same event, and conflating them let one macro
+  losing its screen cancel the rest of someone's dailies. `stall_timeout_ms` is coerced
+  in `_stall_timeout_of` *and* validated at load, because it is only read on an
+  iteration that recognised nothing — a string there used to raise a `TypeError`
+  minutes into a run that had been working.
+
+Neither makes automation undetectable. Do not describe them as if they do.
+
 ### Proportional coordinates
 
-`move`, `click` (and anything routing through `_click`, including
-`find_and_click`) accept `xp`/`yp` — fractions `0.0-1.0` of the target window's
-client area — instead of `x`/`y` pixels, so coordinate-driven macros survive a
+`move`, `click`, `double_click`, `right_click` and `scroll` — the set in
+`ACTIONS_WITH_PROPORTIONS` — accept `xp`/`yp`, fractions `0.0-1.0` of the target
+window's client area, instead of `x`/`y` pixels, so coordinate-driven macros survive a
 window resize. Requires a resolved `target_window`; `_build_ctx` supplies
-`client_w`/`client_h`. Pixels win if both are given.
+`client_w`/`client_h`, and `_coords` raises rather than guessing when they are 0.
+Pixels win per axis if both are given.
+
+Nothing else takes them. `find_and_click` builds its own `{"type": "click", "x": …}`
+from the match, so `xp` on *that* action is silently ignored; `drag`, `pixel_check` and
+`pixel_wait` require pixel `x`/`y`, and validation rejects `xp`/`yp` there with a
+message naming the actions that do support it. Waiving the requirement more widely once
+let a macro validate and then raise `KeyError` at run time, or act at `(0, 0)` in
+silence.
 
 ### Where this input method works, and where it cannot
 
@@ -163,5 +230,8 @@ See `tools/README.md` — that distinction has bitten twice.
 2. Register it in the `handlers` dict inside `run_action()`.
 3. Add required fields to `_REQUIRED_ACTION_FIELDS` in `engine/macro_engine.py`.
 4. If the action supports branching, add `on_match`/`on_found` etc. and register the branch keys in `_validate_actions()`.
-5. Add a snippet dict to `_SNIPPETS` in `gui/editor.py` so it appears in the sidebar.
-6. Document it in `macros/SCHEMA.md`.
+5. In `gui/editor.py`: add its fields to `_F`, **and** add it to a `_GROUPS` row or it
+   will not appear in the action picker (`_ICON`/`_COLOR` are optional cosmetics that
+   fall back to the type name). `stop` is in `_F` but not in `_GROUPS`, which is why it
+   can only be added by editing JSON.
+6. Document it in `docs/SCHEMA.md` — the reference for macro JSON.

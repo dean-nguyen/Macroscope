@@ -128,6 +128,34 @@ _sweep_state: dict = {}      # key -> monotonic time of the last sweep
 _scale_lock = threading.Lock()
 
 
+class Match(tuple):
+    """``(cx, cy, score)`` with the size the template actually matched at attached.
+
+    Existing code unpacks three values, so this stays a 3-tuple. ``w``/``h`` are the
+    needle's size *after* scaling, which is the only size a caller may reason about:
+    matching is scale-aware, so a 40x40 template can match a 20x20 element on a
+    half-size window. Bounding click jitter by the file's size instead would let a
+    scattered click land outside the element that was matched.
+    """
+
+    # No __slots__: a variable-length builtin subtype cannot have them.
+
+    def __new__(cls, cx: int, cy: int, score: float, w: int = 0, h: int = 0):
+        self = super().__new__(cls, (cx, cy, score))
+        self.w, self.h = int(w), int(h)
+        return self
+
+    def moved(self, dx: int, dy: int) -> "Match":
+        """The same match, offset — used when the haystack was a sub-region."""
+        return Match(self[0] + dx, self[1] + dy, self[2], self.w, self.h)
+
+    @property
+    def jitter_bound(self) -> int:
+        """How far a click may be scattered and still be inside what was matched:
+        a quarter of the smaller side. 0 for a match too small to scatter within."""
+        return min(self.w, self.h) // 4
+
+
 def clear_scale_cache() -> None:
     """Forget discovered template scales (used by tests and on window resize)."""
     with _scale_lock:
@@ -258,14 +286,11 @@ def find_template(
     if result is None:
         return None
 
-    cx, cy, score = result
-
     # Adjust for region offset when haystack was a sub-region of the screen.
     if region is not None and hwnd is None:
-        cx += region[0]
-        cy += region[1]
+        result = result.moved(region[0], region[1])
 
-    return (cx, cy, score)
+    return result
 
 
 def find_all_templates(
@@ -290,7 +315,7 @@ def find_all_templates(
 
     # Adjust for region offset
     if region is not None and hwnd is None:
-        results = [(cx + region[0], cy + region[1], s) for cx, cy, s in results]
+        results = [m.moved(region[0], region[1]) for m in results]
 
     return results
 
@@ -612,7 +637,7 @@ def _cv_match(
     if score >= threshold:
         cx = max_loc[0] + tw // 2
         cy = max_loc[1] + th // 2
-        return (cx, cy, score)
+        return Match(cx, cy, score, tw, th)
 
     return None
 
@@ -647,7 +672,7 @@ def _cv_match_all(
         score = _clamp_score(result[pt_y, pt_x])
         cx = pt_x + tw // 2
         cy = pt_y + th // 2
-        matches.append((cx, cy, score))
+        matches.append(Match(cx, cy, score, tw, th))
 
     if not matches:
         return []
@@ -672,7 +697,8 @@ def _nms(
     matches = sorted(matches, key=lambda m: m[2], reverse=True)
     keep = []
 
-    for cx, cy, score in matches:
+    for match in matches:
+        cx, cy = match[0], match[1]
         # Check overlap with already-kept detections
         overlaps = False
         for kx, ky, _ in keep:
@@ -681,6 +707,7 @@ def _nms(
                 overlaps = True
                 break
         if not overlaps:
-            keep.append((cx, cy, score))
+            # Kept as-is, so a Match keeps the size it matched at.
+            keep.append(match)
 
     return keep

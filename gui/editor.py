@@ -797,7 +797,19 @@ class MacroEditor(tk.Toplevel):
 
     # ── load / collect ─────────────────────────────────────────────────────────
 
+    # Top-level keys this form owns. Anything else in the file is carried through
+    # untouched on save — see _collect_macro.
+    _FORM_KEYS = frozenset({
+        "name", "description", "trigger", "loop", "loop_delay_ms",
+        "background", "target_window", "target_hwnd", "actions",
+    })
+
     def _load_macro(self, macro: dict):
+        # Remembered so fields the form does not show survive a save. Without this,
+        # opening a macro that sets "humanize" or "stall_timeout_ms" and pressing
+        # Save silently reverted it to the defaults.
+        self._carried = {k: v for k, v in macro.items()
+                         if k not in self._FORM_KEYS and not k.startswith("_")}
         self._name_var.set(macro.get("name", "my_macro"))
         self._desc_var.set(macro.get("description", ""))
 
@@ -825,7 +837,8 @@ class MacroEditor(tk.Toplevel):
     def _collect_macro(self) -> dict:
         self._sync_rows()
 
-        macro: dict = {"name": self._name_var.get().strip() or "my_macro"}
+        macro: dict = dict(getattr(self, "_carried", {}))
+        macro["name"] = self._name_var.get().strip() or "my_macro"
 
         desc = self._desc_var.get().strip()
         if desc:

@@ -25,6 +25,7 @@ import engine.pixel_detector as pd
 import engine.background_input as bg
 import engine.image_matcher as im
 import engine.rect_detector as rd
+from engine.humanize import DISABLED as _NO_JITTER, Humanize
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.01
@@ -50,7 +51,7 @@ def run_action(
         "scroll":       lambda a: _scroll(a, ctx),
         "key":          lambda a: _key(a, ctx),
         "type":         lambda a: _type(a, ctx),
-        "wait":         lambda a: _wait(a),
+        "wait":         lambda a: _wait(a, ctx),
         "stop":         lambda a: _stop(a, ctx),
         "pixel_wait":     lambda a: _pixel_wait(a, ctx),
         "pixel_check":    lambda a: _pixel_check(a, run_actions_fn, ctx),
@@ -113,6 +114,75 @@ def _log(ctx: Optional[Dict], msg: str) -> None:
     fn = ctx.get("log") if ctx else None
     if callable(fn):
         fn(msg)
+
+
+def _humanize(ctx: Optional[Dict]) -> Humanize:
+    """Jitter settings for this run. Absent means no jitter — a bare run_action call
+    from a test or a tool should behave exactly as written."""
+    value = (ctx or {}).get("humanize")
+    return value if isinstance(value, Humanize) else _NO_JITTER
+
+
+def _recognised(ctx: Optional[Dict]) -> None:
+    """Record that the macro just recognised something on screen.
+
+    macro_engine watches this to notice a stall. Every kind of recognition counts —
+    a template, a pixel colour, a detected rectangle — because a macro driven by
+    pixel checks is working just as much as one driven by templates, and killing it
+    for "recognising nothing" would be a lie.
+    """
+    if ctx is not None:
+        ctx["saw_expected"] = True
+
+
+def _sent_input(ctx: Optional[Dict]) -> None:
+    """Record that the macro actually acted on the target this iteration.
+
+    The stall guard needs this: a macro that recognises nothing and *does* nothing
+    is a watcher waiting for something to appear, which is fine, while one that
+    keeps clicking at a screen it cannot recognise is the case worth stopping.
+    """
+    if ctx is not None:
+        ctx["sent_input"] = True
+
+
+def _clamp_click(x: int, y: int, ctx: Optional[Dict]):
+    """Keep a scattered click inside the area it is allowed to land in.
+
+    Without this, a 3 px scatter on a click at the very edge — `xp: 0.0`, or a
+    pixel coordinate on the border — leaves the target: a posted click at (-2, -2)
+    is silently dropped by the application, and in foreground mode pyautogui parks
+    the real cursor on a screen corner, which is one of its failsafe points, so the
+    *next* pyautogui call aborts the macro. Measured: with the default 3 px, a click
+    at `xp: 0.999` left a 1280x720 client area 39 times out of 60.
+
+    The one-pixel margin is what keeps a corner failsafe point out of reach.
+    """
+    cw = (ctx or {}).get("client_w") or 0
+    ch = (ctx or {}).get("client_h") or 0
+    if not (cw and ch):
+        # Plain foreground: coordinates are screen-space and offsets are zero.
+        try:
+            cw, ch = pyautogui.size()
+        except Exception:
+            return x, y
+    if x is not None:
+        x = min(max(1, x), max(1, cw - 2))
+    if y is not None:
+        y = min(max(1, y), max(1, ch - 2))
+    return x, y
+
+
+def _scatter(x, y, ctx: Optional[Dict], max_px: Optional[int] = None):
+    """Jitter a click point, then clamp it back inside the target.
+
+    An exact point is returned untouched — jitter is the only thing that may need
+    clamping, and a coordinate the macro author wrote is not ours to move.
+    """
+    jx, jy = _humanize(ctx).point(x, y, max_px=max_px)
+    if (jx, jy) == (x, y):
+        return x, y
+    return _clamp_click(jx, jy, ctx)
 
 
 def _coords(a: Dict, ctx: Optional[Dict]):
@@ -189,11 +259,18 @@ def _move(a: Dict, ctx) -> None:
                          duration=a.get("duration", 0.1))
 
 
-def _click(a: Dict, ctx) -> None:
+def _click(a: Dict, ctx, jittered: bool = False) -> None:
     # Every clicking path funnels through here, including find_and_click, so this
     # is the one place that reliably knows a click really happened.
     im.invalidate_frame_scope()
+    _sent_input(ctx)
     x, y = _coords(a, ctx)
+    # `jittered` is a keyword, not a field in the action: callers that already
+    # scattered their point against the size of the element they matched have a
+    # better bound than anything available here, and a flag living in the action
+    # dict would be spoofable by a user's JSON and would survive being saved.
+    if not jittered:
+        x, y = _scatter(x, y, ctx)
     button = a.get("button", "left")
     if _is_bg(ctx):
         cx, cy = (x or 0), (y or 0)
@@ -215,7 +292,10 @@ def _click(a: Dict, ctx) -> None:
 
 
 def _double_click(a: Dict, ctx) -> None:
+    _sent_input(ctx)
     rx, ry = _coords(a, ctx)
+    if rx is not None and ry is not None:
+        rx, ry = _scatter(rx, ry, ctx)
     x, y = (rx if rx is not None else 0), (ry if ry is not None else 0)
     if _is_bg(ctx):
         bg.post_double_click(_hwnd(ctx), x, y)
@@ -227,7 +307,10 @@ def _double_click(a: Dict, ctx) -> None:
 
 
 def _right_click(a: Dict, ctx) -> None:
+    _sent_input(ctx)
     rx, ry = _coords(a, ctx)
+    if rx is not None and ry is not None:
+        rx, ry = _scatter(rx, ry, ctx)
     x, y = (rx if rx is not None else 0), (ry if ry is not None else 0)
     if _is_bg(ctx):
         bg.post_right_click(_hwnd(ctx), x, y)
@@ -239,6 +322,7 @@ def _right_click(a: Dict, ctx) -> None:
 
 
 def _drag(a: Dict, ctx) -> None:
+    _sent_input(ctx)
     if _is_bg(ctx):
         bg.post_drag(
             _hwnd(ctx),
@@ -257,6 +341,7 @@ def _drag(a: Dict, ctx) -> None:
 
 
 def _scroll(a: Dict, ctx) -> None:
+    _sent_input(ctx)
     rx, ry = _coords(a, ctx)
     x, y = (rx if rx is not None else 0), (ry if ry is not None else 0)
     amount = a.get("amount", 3)
@@ -271,6 +356,7 @@ def _scroll(a: Dict, ctx) -> None:
 
 
 def _key(a: Dict, ctx) -> None:
+    _sent_input(ctx)
     keys = a.get("keys", [])
     if not keys:
         raise ActionError("'key' action requires a 'keys' list")
@@ -284,6 +370,7 @@ def _key(a: Dict, ctx) -> None:
 
 
 def _type(a: Dict, ctx) -> None:
+    _sent_input(ctx)
     text = a.get("text", "")
     interval = a.get("interval", 0.02)
     if _is_bg(ctx):
@@ -292,8 +379,8 @@ def _type(a: Dict, ctx) -> None:
         pyautogui.typewrite(text, interval=interval)
 
 
-def _wait(a: Dict) -> None:
-    time.sleep(a.get("ms", 0) / 1000.0)
+def _wait(a: Dict, ctx=None) -> None:
+    time.sleep(_humanize(ctx).delay(a.get("ms", 0)) / 1000.0)
 
 
 def _stop(a: Dict, ctx) -> None:
@@ -318,6 +405,8 @@ def _pixel_wait(a: Dict, ctx=None) -> None:
         timeout_ms=a.get("timeout_ms", 5000),
         poll_ms=a.get("poll_ms", 50),
     )
+    if success:
+        _recognised(ctx)
     if not success and a.get("fail_on_timeout", False):
         raise ActionError(
             f"pixel_wait timed out at ({x}, {y}) "
@@ -332,6 +421,8 @@ def _pixel_check(a: Dict, run_actions_fn: Callable, ctx) -> None:
     expected = tuple(a["color"])
     tolerance = a.get("tolerance", 0)
     matched = pd.color_matches(actual, expected, tolerance)
+    if matched:
+        _recognised(ctx)
 
     status = "MATCH" if matched else "NO MATCH"
     _log(ctx,
@@ -362,8 +453,12 @@ def _safe_find(a: Dict, sh, threshold: float, ctx, find_all: bool = False):
     """
     try:
         if find_all:
-            return im.find_all_templates(a["template"], hwnd=sh, threshold=threshold)
-        return im.find_template(a["template"], hwnd=sh, threshold=threshold)
+            found = im.find_all_templates(a["template"], hwnd=sh, threshold=threshold)
+        else:
+            found = im.find_template(a["template"], hwnd=sh, threshold=threshold)
+        if found:
+            _recognised(ctx)
+        return found
     except im.TemplateMissing as exc:
         ref = a["template"]
         if ref not in _warned_missing:
@@ -373,19 +468,37 @@ def _safe_find(a: Dict, sh, threshold: float, ctx, find_all: bool = False):
         return [] if find_all else None
 
 
+def _bound_of(match) -> int:
+    """How far a click on *match* may be scattered and stay inside it.
+
+    A match from image_matcher carries the size it matched at; anything else (an
+    older tuple, a stub in a test) gives no bound, and 0 means "do not scatter"
+    rather than "scatter freely".
+    """
+    return getattr(match, "jitter_bound", 0)
+
+
 def _find_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
-    """Find a template image and click its centre."""
+    """Find a template image and click inside it."""
     sh = _search_hwnd(ctx)
     threshold = a.get("threshold", 0.80)
     result = _safe_find(a, sh, threshold, ctx)
     if result:
         cx, cy, score = result
+        # Scatter the click within the matched element rather than always hitting its
+        # exact centre, bounded by the size the template *matched* at — not the size
+        # of the file. Matching is scale-aware, so on a half-size window a 40x40
+        # template matches a 20x20 element, and the file's size would let the jitter
+        # land outside it.
+        jx, jy = _scatter(cx, cy, ctx, max_px=_bound_of(result))
         _log(ctx,
              f"[find_and_click] FOUND '{a['template']}' "
-             f"at ({'client' if sh else 'screen'})({cx},{cy}) score={score:.3f}")
-        click_a   = {"type": "click", "x": cx, "y": cy, "button": a.get("button", "left")}
+             f"at ({'client' if sh else 'screen'})({cx},{cy}) score={score:.3f}"
+             + (f" → clicking ({jx},{jy})" if (jx, jy) != (cx, cy) else ""))
+        click_a   = {"type": "click", "x": jx, "y": jy,
+                     "button": a.get("button", "left")}
         click_ctx = _make_click_ctx_for_found(ctx, sh)
-        _click(click_a, click_ctx)
+        _click(click_a, click_ctx, jittered=True)
         if a.get("on_found"):
             run_actions_fn(a["on_found"])
     else:
@@ -460,6 +573,7 @@ def _find_rects_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
             run_actions_fn(a["on_not_found"])
         return
 
+    _recognised(ctx)
     _log(ctx, f"[find_rects] detected {len(rects)} rects")
     for i, (cx, cy, w, h) in enumerate(rects):
         _log(ctx, f"  [{i}] centre=({cx},{cy}) size={w}x{h}")
@@ -471,9 +585,10 @@ def _find_rects_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
 
     if index == "all":
         for i, (cx, cy, w, h) in enumerate(rects):
-            _log(ctx, f"[find_rects] clicking rect [{i}] at ({cx},{cy})")
-            click_a = {"type": "click", "x": cx, "y": cy, "button": button}
-            _click(click_a, click_ctx)
+            jx, jy = _scatter(cx, cy, ctx, max_px=min(w, h) // 4)
+            _log(ctx, f"[find_rects] clicking rect [{i}] at ({jx},{jy})")
+            click_a = {"type": "click", "x": jx, "y": jy, "button": button}
+            _click(click_a, click_ctx, jittered=True)
             if a.get("on_found"):
                 run_actions_fn(a["on_found"])
             if i < len(rects) - 1 and click_delay > 0:
@@ -486,9 +601,10 @@ def _find_rects_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
                 run_actions_fn(a["on_not_found"])
             return
         cx, cy, w, h = rects[idx]
-        _log(ctx, f"[find_rects] clicking rect [{idx}] at ({cx},{cy})")
-        click_a = {"type": "click", "x": cx, "y": cy, "button": button}
-        _click(click_a, click_ctx)
+        jx, jy = _scatter(cx, cy, ctx, max_px=min(w, h) // 4)
+        _log(ctx, f"[find_rects] clicking rect [{idx}] at ({jx},{jy})")
+        click_a = {"type": "click", "x": jx, "y": jy, "button": button}
+        _click(click_a, click_ctx, jittered=True)
         if a.get("on_found"):
             run_actions_fn(a["on_found"])
 
@@ -535,10 +651,13 @@ def _find_all_and_click(a: Dict, run_actions_fn: Callable, ctx) -> None:
 
     click_ctx = _make_click_ctx_for_found(ctx, sh)
 
-    for i, (cx, cy, score) in enumerate(matches):
-        _log(ctx, f"[find_all] clicking [{i}] at ({cx},{cy})")
-        click_a = {"type": "click", "x": cx, "y": cy, "button": button}
-        _click(click_a, click_ctx)
+    for i, match in enumerate(matches):
+        cx, cy = match[0], match[1]
+        # Bounded by this match's own size, as in find_and_click.
+        jx, jy = _scatter(cx, cy, ctx, max_px=_bound_of(match))
+        _log(ctx, f"[find_all] clicking [{i}] at ({jx},{jy})")
+        click_a = {"type": "click", "x": jx, "y": jy, "button": button}
+        _click(click_a, click_ctx, jittered=True)
         if a.get("on_found"):
             run_actions_fn(a["on_found"])
         if i < len(matches) - 1 and delay > 0:

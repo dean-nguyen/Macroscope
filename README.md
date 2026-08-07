@@ -36,13 +36,13 @@ look at the screen and branch on what they find:
 ```
 
 `templates/claim.png` is a screenshot of the button, cropped in the app. The engine
-finds it on screen and clicks its centre.
+finds it on screen and clicks inside it.
 
 ## What makes it more than a click recorder
 
-Four things this handles that a naive image-matching macro tool does not. Each was
-found by measuring on a live application, and each measurement is written down in
-`CLAUDE.md`.
+Five things this handles that a naive image-matching macro tool does not. The first
+four were each found by measuring on a live application, and those measurements are
+written down in `CLAUDE.md`.
 
 **It survives the window being resized.** A template captured at 2840×1600 still
 matches at 1280×720. The engine searches for the scale factor once — coarse ladder for
@@ -65,10 +65,25 @@ a single capture. That is cheaper, but mostly it is *correct*: on an animated sc
 two captures taken milliseconds apart are not the same image, and checks that
 disagreed about what was on screen produced real bugs.
 
+**It stops when it is clicking at a screen it cannot read.** If a looping macro spends
+five minutes sending input without recognising anything it looks for, it stops and says
+so. That is deliberately generic: it catches a verification prompt, a disconnect,
+maintenance downtime *and* the application changing its UI — none of which needs a
+template, and the last of which no template could have anticipated. A macro that
+recognises nothing but also clicks nothing is a watcher waiting for something to
+appear, and is left alone.
+
 It also refuses to do things that cannot work. A featureless crop — an empty panel, a
 solid button fill — correlates perfectly with anything, so it is rejected rather than
 silently matching everywhere. An uncaptured template degrades to "not found" and is
 listed at the start of every run, instead of aborting the macro.
+
+Timing and click positions are scattered rather than identical: `wait` delays and the
+loop delay vary by ±15%, and a click lands a few pixels off the centre of the matched
+element rather than always on the exact centre pixel — bounded by the size the element
+*matched* at, and clamped so it cannot leave the window. Set `"humanize": false` on a
+macro that must hit an exact pixel. Other intervals — keystroke gaps, poll periods —
+are used exactly as written; see `docs/SCHEMA.md`.
 
 ## Getting a macro working
 
@@ -112,6 +127,7 @@ engine/
   pack_store.py        .wmbpack import / export
 gui/                   tkinter app: macro list, editor, capture wizard, arranger
 tools/                 developer probes — see tools/README.md
+docs/SCHEMA.md         every macro field and action, with its real default
 docs/                  backlog and PRDs
 CLAUDE.md              engine behaviour, and the measurements behind it
 ```
@@ -120,7 +136,7 @@ CLAUDE.md              engine behaviour, and the measurements behind it
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests/          # 102 tests
+python -m pytest tests/          # 120 tests
 python tools/import_check.py     # what CI also runs
 ```
 
@@ -142,9 +158,11 @@ your risk — but a few things are not judgement calls:
 
 - It will not defeat kernel anti-cheat (Vanguard, EAC, BattlEye). Posted input does not
   reach those, and attempting it risks the account of whoever runs it.
-- Timing is currently entirely fixed — every delay is a constant and every click lands
-  on the exact same pixel. That is a recognisable pattern. Randomisation is on the
-  backlog and is not implemented.
+- Timing and click positions are scattered, but **that is not the same as being
+  undetectable** and nothing here should be read as claiming it. It removes the
+  trivially obvious signature — a perfect metronome hitting one pixel — and no more.
+- The stall guard stops a macro that has lost track of the screen, but it is a
+  backstop, not supervision. Automating something unattended for hours is your risk.
 - If an application shows you a verification prompt, stop. Do not automate through it.
 
 ## License

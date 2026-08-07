@@ -2,7 +2,7 @@
 MacroEngine – loads, validates, runs, and manages macros.
 
 A macro JSON file lives in the macros/ directory.
-Schema reference: macros/SCHEMA.md
+Schema reference: docs/SCHEMA.md
 """
 
 import json
@@ -13,8 +13,60 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from engine import humanize
 from engine.action_runner import ACTIONS_WITH_PROPORTIONS, run_action, ActionError
 from engine.paths import MACROS_DIR, TEMPLATES_DIR
+
+# Stop a looping macro that has been *sending input* this long without recognising
+# anything it looks for. Not a timeout on progress — it is deliberately far longer than
+# any single battle or loading screen.
+#
+# The condition is deliberately "clicking blind", not merely "matching nothing". A
+# macro that recognises nothing and clicks nothing is a watcher waiting for something
+# to appear, which is a normal and safe thing to be; one that keeps clicking at a
+# screen it cannot recognise is the dangerous case this exists for. Set
+# stall_timeout_ms: 0 to disable.
+DEFAULT_STALL_TIMEOUT_MS = 5 * 60 * 1000
+
+# Action types that can report recognising something (see action_runner._recognised).
+# A macro built only from other types gets no stall guard, because it would look
+# blind however well it was working.
+_RECOGNISING_ACTIONS = frozenset({
+    "pixel_wait", "pixel_check", "image_wait", "image_check",
+    "find_and_click", "find_all_and_click", "find_rects_and_click",
+})
+
+_BRANCH_KEYS = ("on_match", "on_no_match", "on_found", "on_not_found")
+
+
+def _can_recognise(actions: List[Dict]) -> bool:
+    """Whether any action in the tree can tell the engine it recognised the screen."""
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        if action.get("type") in _RECOGNISING_ACTIONS:
+            return True
+        for branch in _BRANCH_KEYS:
+            nested = action.get(branch)
+            if isinstance(nested, list) and _can_recognise(nested):
+                return True
+    return False
+
+
+def _stall_timeout_of(macro: Dict) -> int:
+    """The macro's stall timeout in ms, tolerating an absent or unusable value.
+
+    Coerced here rather than trusted, because the value is only *read* on an
+    iteration that recognised nothing: a string would otherwise raise a TypeError
+    minutes into a run that had been working fine.
+    """
+    value = macro.get("stall_timeout_ms")
+    if value is None:
+        return DEFAULT_STALL_TIMEOUT_MS
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return DEFAULT_STALL_TIMEOUT_MS
 
 
 def _clean_folder(folder: str) -> str:
@@ -41,6 +93,9 @@ class MacroEngine:
         self._macros: Dict[str, Dict] = {}          # name → macro dict
         self._running: Dict[str, threading.Thread] = {}
         self._stop_flags: Dict[str, threading.Event] = {}
+        # Names the stall guard stopped, so a sequential folder run can tell that
+        # apart from the user hitting Stop.
+        self._stalled: set = set()
         self._lock = threading.Lock()
         self._log = log_fn or print
 
@@ -268,6 +323,7 @@ class MacroEngine:
         stop_event = threading.Event()
         with self._lock:
             self._stop_flags[name] = stop_event
+            self._stalled.discard(name)
 
         def worker():
             try:
@@ -354,6 +410,7 @@ class MacroEngine:
                     with self._lock:
                         self._stop_flags[name] = per_stop
                         self._running[name] = threading.current_thread()
+                        self._stalled.discard(name)
                     try:
                         self._execute(macro, per_stop)
                         self._log(f"[done] {name}")
@@ -364,8 +421,13 @@ class MacroEngine:
                             self._running.pop(name, None)
                         if on_each_done:
                             on_each_done(name)
-                        # If the user hit Stop on this macro, stop the whole chain.
-                        if per_stop.is_set():
+                        # If the user hit Stop on this macro, stop the whole chain —
+                        # but the stall guard sets the same flag, and one macro
+                        # losing track of its screen is no reason to cancel the
+                        # rest of someone's dailies.
+                        with self._lock:
+                            stalled = name in self._stalled
+                        if per_stop.is_set() and not stalled:
                             seq_stop.set()
             finally:
                 if on_all_done:
@@ -399,7 +461,13 @@ class MacroEngine:
 
     def _execute(self, macro: Dict, stop: threading.Event) -> None:
         loop = macro.get("loop", False)
-        loop_delay = macro.get("loop_delay_ms", 0) / 1000.0
+        loop_delay_ms = macro.get("loop_delay_ms", 0)
+        jitter = humanize.from_macro(macro)
+        stall_ms = _stall_timeout_of(macro)
+        # The guard needs a macro that can *tell* whether it recognises the screen.
+        # A purely coordinate-driven macro recognises nothing by construction, so
+        # judging it by that would stop something that is working.
+        guarded = stall_ms > 0 and _can_recognise(macro.get("actions", []))
 
         self._warn_missing_templates(macro)
 
@@ -409,11 +477,16 @@ class MacroEngine:
         if resolved_hwnd is not None:
             macro = dict(macro, target_hwnd=resolved_hwnd)
 
-        def _run_once():
+        last_recognised = time.monotonic()
+        acted_blind = False       # sent input since the last thing it recognised
+
+        def _run_once() -> Dict:
+            """Run one iteration. Returns what the iteration observed and did."""
             # Rebuild ctx each iteration so the window offset stays current
             # if the window is moved, but the hwnd is pinned from above.
             ctx = self._build_ctx(macro)
             ctx["request_stop"] = stop.set   # lets a `stop` action end the loop
+            ctx["humanize"] = jitter
 
             def run_actions(actions):
                 for action in actions:
@@ -430,12 +503,34 @@ class MacroEngine:
                 run_actions(macro["actions"])
             finally:
                 im.end_frame_scope()
+            return {"recognised": bool(ctx.get("saw_expected")),
+                    "sent_input": bool(ctx.get("sent_input"))}
 
         if loop:
             while not stop.is_set():
-                _run_once()
-                if loop_delay > 0 and not stop.is_set():
-                    stop.wait(timeout=loop_delay)
+                tick = _run_once()
+                if tick["recognised"]:
+                    last_recognised = time.monotonic()
+                    acted_blind = False
+                elif tick["sent_input"]:
+                    acted_blind = True
+                if guarded and acted_blind:
+                    idle_ms = (time.monotonic() - last_recognised) * 1000
+                    if idle_ms >= stall_ms:
+                        self._log(
+                            f"[stalled] {macro['name']}: it has been sending input for "
+                            f"{idle_ms / 1000:.0f}s without recognising anything it "
+                            f"looks for — stopping. The window is probably showing "
+                            f"something unexpected (a prompt, a disconnect, or a "
+                            f"changed UI). Raise or disable this with "
+                            f"\"stall_timeout_ms\"."
+                        )
+                        with self._lock:
+                            self._stalled.add(macro["name"])
+                        stop.set()
+                        break
+                if loop_delay_ms > 0 and not stop.is_set():
+                    stop.wait(timeout=jitter.delay(loop_delay_ms) / 1000.0)
         else:
             _run_once()
 
@@ -626,7 +721,46 @@ def _validate(macro: Dict) -> None:
         raise ValueError("Macro missing required field 'name'")
     if not isinstance(macro.get("actions", None), list):
         raise ValueError("Macro missing required field 'actions' (must be a list)")
+    _validate_safety_fields(macro)
     _validate_actions(macro["actions"])
+
+
+def _validate_safety_fields(macro: Dict) -> None:
+    """Reject an unusable ``stall_timeout_ms`` or ``humanize`` at load.
+
+    Both are only read while a macro is already running — the timeout on an
+    iteration that recognised nothing, the jitter settings at macro start — so a
+    string where a number belongs used to surface as a TypeError minutes into a run
+    that had been working. Failing here names the field instead.
+    """
+    if "stall_timeout_ms" in macro:
+        value = macro["stall_timeout_ms"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                f"'stall_timeout_ms' must be a number of milliseconds "
+                f"(0 disables the stall guard), got {value!r}"
+            )
+        if value < 0:
+            raise ValueError("'stall_timeout_ms' cannot be negative; use 0 to disable")
+
+    if "humanize" in macro:
+        setting = macro["humanize"]
+        if isinstance(setting, dict):
+            for field in ("timing_pct", "click_px"):
+                if field in setting and setting[field] is not None:
+                    if isinstance(setting[field], bool) or \
+                            not isinstance(setting[field], (int, float)):
+                        raise ValueError(
+                            f"'humanize.{field}' must be a number, "
+                            f"got {setting[field]!r}"
+                        )
+                    if setting[field] < 0:
+                        raise ValueError(f"'humanize.{field}' cannot be negative")
+        elif not isinstance(setting, bool):
+            raise ValueError(
+                f"'humanize' must be false, true, or an object with 'timing_pct' "
+                f"and/or 'click_px', got {setting!r}"
+            )
 
 
 def _validate_actions(actions: List[Dict]) -> None:
