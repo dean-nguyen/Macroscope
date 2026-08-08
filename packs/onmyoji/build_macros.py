@@ -95,6 +95,19 @@ def preamble(*limit_templates):
         stop_on("onmyoji_inventory_full.png"),
         *[stop_on(t) for t in limit_templates],
         find_click("onmyoji_reconnect_retry.png"),
+
+        # An invitation from another player — a Wanted Quest bounty — can arrive over
+        # any screen, and accepting one takes the client somewhere these macros do not
+        # navigate back from.
+        #
+        # It is deliberately NOT routed through dismiss(), which clears a screen by
+        # pressing the standard confirm scroll. On an invitation that button is
+        # *accept*. This clicks one thing only: a button positively identified as the
+        # decline, so an uncaptured template means nothing is pressed rather than the
+        # wrong thing being pressed — the same trap as "Challenge Again" on the defeat
+        # screen, which is how that one was found.
+        find_click("onmyoji_wanted_quest_decline.png"),
+
         dismiss("onmyoji_level_up.png"),
         dismiss("onmyoji_defeat.png"),
         find_click("onmyoji_reward_confirm.png", threshold=TAP_THRESHOLD),

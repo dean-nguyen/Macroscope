@@ -46,6 +46,23 @@ missing at the start of every run.
 | `onmyoji_level_up.png` | A shikigami levels up | the **banner/title**, not the OK | Makes the macro look for something it can dismiss |
 | `onmyoji_defeat.png` | You lose a fight | the **Failed** banner, not the panel below | Same — the loss is then cleared like any other result |
 | `onmyoji_reconnect_retry.png` | The network drops | the retry button **with its message text** | Auto-clicked to recover |
+| `onmyoji_wanted_quest_decline.png` | Another player invites you to a Wanted Quest | the **decline / close / X**, with enough of the popup around it to be distinctive | Clicked, so the raid carries on. See the warning below. |
+
+### The invitation: crop the decline, never the accept
+
+An invitation can arrive over any screen. Accepting one takes the client into a
+different activity, and these macros do not navigate — they would be left clicking
+raid coordinates at a bounty screen until the stall guard stops them.
+
+The macro clicks **exactly what this template shows**. Crop the accept button by
+mistake and it will accept every invitation that arrives. That is also why the
+invitation is not cleared by the generic dismiss path the level-up and defeat
+screens use: that path presses the game's standard confirm scroll, and on an
+invitation the standard confirm *is* accept.
+
+Until it is captured, an invitation that covers the target list simply stalls the
+macro — it clicks nothing — and one that leaves the list visible may take a grid
+click meant for a target.
 
 ### Do not capture a "Challenge Again"
 
@@ -65,6 +82,11 @@ middle of the defeat screen is that panel. They click only what they can see.
 - **Realm Raid (Guild):** realmraid_attack, realmraid_guild_progress,
   realmraid_refresh (to find the tab from the Individual list), reward_confirm,
   guild_no_wins + the same resilience set
+
+The "resilience set" is captcha, inventory_full, level_up, defeat, reconnect_retry
+and wanted_quest_decline — every one of them opportunistic, and every one a
+*stop-guard or an interruption*. Until they exist the macros run; they just do not
+stop, or clear, for the reason named.
 
 ## Tips
 

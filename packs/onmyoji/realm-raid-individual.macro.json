@@ -50,6 +50,18 @@
       "on_not_found": []
     },
     {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_wanted_quest_decline.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
       "type": "image_check",
       "template": "templates/onmyoji_level_up.png",
       "threshold": 0.8,
