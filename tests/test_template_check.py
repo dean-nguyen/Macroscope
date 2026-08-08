@@ -206,8 +206,14 @@ def test_the_collision_bar_is_the_threshold_macros_click_at(tmp_path):
     existing = tmp_path / "a.png"
     base = _noise(seed=10)
     cv2.imwrite(str(existing), base)
-    # Same crop, so the score is 1.0: reported at any threshold up to 1.0...
-    assert tc.inspect_crop(base.copy(), existing=[existing], threshold=1.0)
+
+    # The same crop correlates perfectly, so it is reported at any threshold the
+    # bar could sensibly take. Not asserted at exactly 1.0: matchTemplate returns a
+    # float, and an identical pair came back a hair under 1.0 on one OpenCV build and
+    # exactly 1.0 on another — the test failed on Python 3.13 and passed on 3.12 for
+    # that reason alone.
+    assert tc._cross_score(base.copy(), base) > 0.999
+    assert tc.inspect_crop(base.copy(), existing=[existing], threshold=0.99)
     # ...and a threshold above what correlation can reach reports nothing.
     assert tc.inspect_crop(base.copy(), existing=[existing], threshold=1.01) == []
 

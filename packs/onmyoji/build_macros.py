@@ -1,15 +1,24 @@
-"""Generate the two Realm Raid macros.
+"""Generate the pack's two Realm Raid macros.
 
-Written as a generator rather than by hand because the target-selection chain nests
-one level per grid cell: the schema has no "for each cell" action, so trying nine
-cells means nine nested on_not_found branches. Hand-editing that is how you get a
-branch that silently never runs — which is exactly the defect realm-raid shipped with
-before (it looked for the Attack button on a screen where that button does not exist).
+A generator rather than two hand-written files, because the target-selection chain
+nests one level per grid cell: the schema has no "for each cell" action, so nine cells
+means nine nested `on_not_found` branches, twelve levels deep. Hand-editing that is how
+you get a branch that silently never runs, which is the defect `realm-raid` shipped
+with before — it looked for the Attack button on a screen where that button does not
+exist. It also keeps the shared guard chain in one place.
+
+The pack deliberately covers only Realm Raid. It used to carry nine more macros, six of
+which were byte-identical in structure apart from one line choosing which limit to stop
+on, and none of which navigated anywhere — so the file name was documentation of which
+screen to open first, and a "pack" of them was a pack of one macro with nine labels.
+These two are here because they are the ones that have been **run against the live game
+end to end**, and because they are genuinely different from each other: a fixed 3x3
+grid with a Refresh button, versus a scrolling two-column member list with its own
+`Win(s)` counter and no Refresh.
 
 Every coordinate below was read off a live 1236x696 client area and converted to a
-fraction, so the macros survive a window resize. The Attack button is found by
-template, never by coordinate, because the panel opens next to whichever card was
-clicked and so has no fixed position.
+fraction, so the macros survive a window resize. Buttons are found by template, never
+by coordinate, wherever a template exists for them.
 """
 import json
 import pathlib
@@ -20,6 +29,16 @@ sys.path.insert(0, str(ROOT))
 
 W, H = 1236, 696
 PACK = ROOT / "packs" / "onmyoji"
+
+
+# "Tap to continue" is a thin translucent line over whatever screen it is on, so it
+# scores over a wide band: measured 0.940 and 0.918 on raid reward overlays, 0.776 on a
+# defeat screen and 0.737 on a battle-victory screen — all four on a live window. The
+# pack's usual 0.76 sat inside that band and only worked because a WGC capture subtracts
+# 0.08; a user on the GDI fallback would have missed the two low ones and left the macro
+# stuck on a result screen. Absent templates measure ~0.47 on this game, so 0.70 keeps a
+# 0.23 gap while clearing the lowest real score by 0.04.
+TAP_THRESHOLD = 0.70
 
 
 def frac(x, y):
@@ -40,10 +59,24 @@ def stop_on(template, threshold=0.7):
 
 
 def dismiss(template, threshold=0.8):
-    """A screen that needs one click in the middle to clear (level-up, defeat)."""
+    """A screen that just needs acknowledging (level-up, defeat).
+
+    Cleared by clicking something the engine can *see* — the standard confirm scroll,
+    or the "Tap to continue" line — never a guessed coordinate. Measured on a real
+    defeat screen: the position this used to click blind, (733, 422), lands inside the
+    "Get stronger via:" panel among three navigation buttons — one of which is "Challenge
+    Again", i.e. spend another attempt on the fight you just lost. The screen's actual
+    dismiss is the "Tap to continue" line that reward_confirm matches at 0.776. Neither
+    find_and_click clicks anything when its template is absent, so a screen this does
+    not understand is left alone rather than poked.
+    """
     return {"type": "image_check", "template": f"templates/{template}",
             "threshold": threshold,
-            "on_found": [click(733, 422), wait(1200)]}
+            "on_found": [
+                find_click("onmyoji_dialog_ok.png", on_found=[wait(1200)]),
+                find_click("onmyoji_reward_confirm.png", threshold=TAP_THRESHOLD,
+                           on_found=[wait(1200)]),
+            ]}
 
 
 def find_click(template, threshold=0.8, on_found=None, on_not_found=None):
@@ -53,17 +86,18 @@ def find_click(template, threshold=0.8, on_found=None, on_not_found=None):
             "on_not_found": on_not_found or []}
 
 
-# The guards and housekeeping every raid tick starts with. Templates not captured
-# yet degrade to "not found" and are listed once per run by the engine.
-def preamble(no_attempts_template):
+# The guards and housekeeping every tick starts with. Templates not captured yet
+# degrade to "not found" and are listed once per run by the engine, so a guard whose
+# template is missing costs nothing but also protects nothing.
+def preamble(*limit_templates):
     return [
         stop_on("onmyoji_captcha.png"),
         stop_on("onmyoji_inventory_full.png"),
-        stop_on(no_attempts_template),
+        *[stop_on(t) for t in limit_templates],
         find_click("onmyoji_reconnect_retry.png"),
         dismiss("onmyoji_level_up.png"),
         dismiss("onmyoji_defeat.png"),
-        find_click("onmyoji_reward_confirm.png", threshold=0.76),
+        find_click("onmyoji_reward_confirm.png", threshold=TAP_THRESHOLD),
     ]
 
 
@@ -89,17 +123,17 @@ def after_attack(list_template):
     which is what made the first reading of this look like the list had come back.
     A third overlay, if there is one, is cleared by the next tick's own reward step.
 
-    A defeat is assumed to offer the same "Tap to continue". If it does not, the wait
-    times out and the next tick recovers from whatever is on screen; that path has not
-    been observed.
+    A defeat offers the same "Tap to continue" — observed on a real loss, where the
+    "Failed" banner scored 0.997 and the tap line 0.776, so this chain clears a lost
+    battle the same way it clears a won one.
     """
     tap = "onmyoji_reward_confirm.png"
     return [
         wait(6000),
         {"type": "image_wait", "template": f"templates/{tap}",
-         "threshold": 0.76, "timeout_ms": 180000, "poll_ms": 2000},
-        find_click(tap, threshold=0.76, on_found=[wait(2500)]),
-        find_click(tap, threshold=0.76, on_found=[wait(1500)]),
+         "threshold": TAP_THRESHOLD, "timeout_ms": 180000, "poll_ms": 2000},
+        find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(2500)]),
+        find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1500)]),
         {"type": "image_wait", "template": f"templates/{list_template}",
          "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 1500},
     ]

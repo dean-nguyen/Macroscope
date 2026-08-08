@@ -10,80 +10,69 @@ Wording below is from the **English Steam client**, checked against a live game.
 
 **Crop distinctive content — words, banners, icons. Never a bare button.**
 
-Onmyoji reuses a single button chrome across the whole UI. A capture of the
-plain **OK** button was measured scoring **0.91 against the Realm Raid Refresh
-button** — a completely different control — because two characters of text
-cannot outweigh a box of flat orange fill. A macro built on such a template
-clicks the wrong thing confidently.
+Onmyoji reuses a single button chrome across the whole UI. A capture of the plain
+**OK** button was measured scoring **0.91 against the Realm Raid Refresh button** —
+a completely different control — because two characters of text cannot outweigh a
+box of flat orange fill. A macro built on such a template clicks the wrong thing
+confidently.
 
-That is why popups here are handled in two parts: a *distinctive* template
-detects the popup, and the OK is then pressed by position (the dialog is modal
-and centred, so its OK is always at the same fraction of the window).
+The wizard now scores each crop as you take it and says so: it refuses a
+featureless one outright, and warns when a crop is not unique on the screen it came
+from or scores too close to a template you already have.
 
-## Capture these now (they are always reachable)
+## Capture these now — the macros do not work without them
 
 | Save as | Where it is | Notes |
 |---|---|---|
-| `onmyoji_battle_ready.png` | Any activity screen → the diamond **Challenge** | Crop the word only. Leave out the ticket number under it — it changes. |
-| `onmyoji_realmraid_attack.png` | Realm Raid → click a target → **Attack** | Only exists *after* a target is selected. |
-| `onmyoji_realmraid_refresh.png` | Realm Raid → **Refresh**, bottom right | |
-| `onmyoji_mail_claim.png` | Mailbox → System Mail → **Read All** | Reading is what grants attachments here, so this *is* claim-all. |
-| `onmyoji_reward_confirm.png` | Finish any fight → **Tap to continue** at the bottom | Needs one real battle. Every farming macro relies on it. |
-
-## Sign-in is event-dependent
-
-`onmyoji_signin_claim.png` is the one capture that will not stay valid.
-
-Onmyoji has **no permanent daily sign-in screen**. The **Bonus** lantern is not
-it — that panel just lists active buff timers (Evo zones, EXP bonus, …). The
-check-in lives inside whichever event is currently running (**Event → Exciting
-Events**), so the button's look and position change when the event rotates.
-
-Capture it from the event that is live, and expect to re-capture it — the
-**Daily Sign-in** macro is only as current as that screenshot.
+| `onmyoji_realmraid_attack.png` | Realm Raid → click a target → **Attack** | Only exists *after* a target is selected. Verified live at 0.98. |
+| `onmyoji_realmraid_refresh.png` | Realm Raid → **Refresh**, bottom right | Also the "am I on the Individual list" marker — it exists nowhere else. |
+| `onmyoji_realmraid_guild_progress.png` | Realm Raid → **Guild** tab → the red **Raid Progress** banner, left panel | The Guild list has no Refresh, so this is its equivalent marker. |
+| `onmyoji_dialog_ok.png` | Realm Raid → **Refresh** → the **OK** on "Raid log progress will be reset…" | The standard confirm scroll, reused across the game. Without it the macro presses Refresh forever and never refreshes anything. |
+| `onmyoji_reward_confirm.png` | Finish any fight → **Tap to continue** at the bottom | Needs one real battle. Both macros clear every result screen with it, on a win and a loss alike. |
 
 ## Capture these when you happen to see them
 
-These states cannot be summoned on demand — keep the wizard handy and grab them
-the first time each appears. Until then those checks simply never match; the
-macros still run (the log lists what is missing at the start of every run).
+These states cannot be summoned on demand — keep the wizard handy and grab them the
+first time each appears. Until then those checks simply never match; the macros
+still run, they just do not stop for the reason named. The log lists what is
+missing at the start of every run.
 
 | Save as | Appears when | Crop what | What the macro does |
 |---|---|---|---|
-| `onmyoji_captcha.png` | A verification screen appears | its distinctive artwork/text | **STOPS the bot.** The key anti-ban guard — until captured, it protects nothing. |
-| `onmyoji_out_of_stamina.png` | You run out of AP | the message text | Stops the AP farms |
-| `onmyoji_no_attempts.png` | A daily limit is spent | the message text | Stops Bounty / Realm Raid / Demon |
+| `onmyoji_captcha.png` | A verification screen appears | its distinctive artwork/text | **STOPS the macro.** Until captured it protects nothing — but the engine's stall guard stops a macro that clicks without recognising anything for five minutes, so this is no longer the only backstop. |
+| `onmyoji_no_attempts.png` | Realm Raid tickets run out | the message text | Stops Realm Raid (Individual) |
+| `onmyoji_guild_no_wins.png` | Guild raid daily wins run out | the message text | Stops Realm Raid (Guild). The Guild tab counts `Win(s): n/6` separately from the ticket counter — and that number is wins **remaining**, not used. |
 | `onmyoji_inventory_full.png` | Storage fills up | the message text | Stops so you can clear space |
-| `onmyoji_level_up.png` | A shikigami levels up | the **banner/title**, not the OK | OK pressed by position |
-| `onmyoji_defeat.png` | You lose a fight | the **Defeat banner**, not the OK | OK pressed by position |
+| `onmyoji_level_up.png` | A shikigami levels up | the **banner/title**, not the OK | Makes the macro look for something it can dismiss |
+| `onmyoji_defeat.png` | You lose a fight | the **Failed** banner, not the panel below | Same — the loss is then cleared like any other result |
 | `onmyoji_reconnect_retry.png` | The network drops | the retry button **with its message text** | Auto-clicked to recover |
 
-## Optional
+### Do not capture a "Challenge Again"
 
-| Save as | Why you might not need it |
-|---|---|
-| `onmyoji_challenge_again.png` | The English Steam client has **no** "challenge again" button — it returns to the activity screen, where `battle_ready` is used instead. Capture only if your client differs. |
+The English client shows none after a win — it returns to the activity screen. It
+shows one after a **loss**, inside the "Get stronger via:" panel. Pointing a raid
+macro at that button means retrying the fight you just lost, which spends another
+attempt on a target you cannot beat and will burn the daily allowance.
+
+For the same reason the macros never dismiss a screen by pressing a *position*: the
+middle of the defeat screen is that panel. They click only what they can see.
 
 ## Which macro needs which
 
-- **Soul / Exploration / Orochi / Awakening:** battle_ready, reward_confirm, out_of_stamina + captcha, inventory_full, level_up, defeat, reconnect_retry
-- **Bounty / Demon:** the same, but `no_attempts` instead of `out_of_stamina`
-- **Realm Raid:** realmraid_attack, realmraid_refresh, reward_confirm, no_attempts + the resilience set
-- **Claim Mail:** mail_claim, reward_confirm
-- **Daily Sign-in:** signin_claim, reward_confirm
+- **Realm Raid (Individual):** realmraid_attack, realmraid_refresh, dialog_ok,
+  reward_confirm, no_attempts + captcha, inventory_full, level_up, defeat,
+  reconnect_retry
+- **Realm Raid (Guild):** realmraid_attack, realmraid_guild_progress,
+  realmraid_refresh (to find the tab from the Individual list), reward_confirm,
+  guild_no_wins + the same resilience set
 
 ## Tips
 
-- **Templates now survive a window resize.** The matcher discovers the scale
-  factor on its own and caches it, so a template captured at 2840×1600 still
-  matches at other sizes. Capturing at your real size is still the sharpest.
-- If a macro clicks too early or grabs the wrong thing, raise its `threshold`.
-  These are raw correlation: the shipped macros use `0.80` for anything they click
-  and `0.70` for stop-guards. On a live window a template that is present scores
-  `~0.92` and absent ones reach `~0.47`, so there is room to tighten.
-- If detection misses, re-capture the template slightly larger, with more
-  distinctive detail inside the box.
-- These macros repeat the **battle** — open the activity screen first, or add
-  your own navigation clicks at the top.
-- Navigation clicks should use `xp`/`yp` (fractions of the window) rather than
-  `x`/`y` pixels, so they survive a resize too.
+- **Templates survive a window resize.** The matcher discovers the scale factor on
+  its own and caches it, so a template captured at 2840×1600 still matches at other
+  sizes — verified live at 0.44×. Capturing at your real size is still sharpest, and
+  it makes the first few ticks of a run faster.
+- **`python tools/match_report.py --title Onmyoji`** scores every template you have
+  against the window as it is right now. A template whose element is on screen
+  scores ~0.92–0.99; absent ones reach about 0.47. If everything you own scores in
+  the 0.40s, nothing is matching.

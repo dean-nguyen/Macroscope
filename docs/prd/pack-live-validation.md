@@ -1,7 +1,7 @@
 # PRD — Run the Onmyoji pack against the live game
 
-**Backlog:** E5.2 · **Status:** Realm Raid done, AP farms outstanding · **Blocks:** the
-`v1.0.0` tag
+**Backlog:** E5.2 · **Status:** both Realm Raid modes done, AP farms outstanding ·
+**Blocks:** the `v1.0.0` tag
 
 ## Results — Realm Raid, 2026-08-07
 
@@ -26,9 +26,40 @@ and the raided targets carry KO stamps. Proportional `xp`/`yp` clicks landed on 
 right grid cells through a real run. Jitter moved every click a few pixels inside the
 matched button and none of them missed.
 
-**Not verified.** A defeat (never lost), the Guild list (the account's `Win(s)` were
-already 6/6), the `no_attempts` and `guild_no_wins` guards, and scrolling the Guild
-list to reach members below the sixth — that last is still the open question it was.
+## Results — Guild Raid and the defeat path, 2026-08-08
+
+`Win(s): n/6` counts wins **remaining**, not used, which is the opposite of how the
+first pass read it — the reason this was recorded as blocked. Five guild attempts spent.
+
+**Verified working.** Four full cycles. The macro selected the Guild tab from the
+Individual list on its own (`guild_progress` 1.000 after the switch), opened a member,
+attacked (0.989, 0.945, 0.989), waited out battles of 25-47 s, cleared the result and
+returned to the list, twice per run. The result needs **two** taps — the fullscreen
+victory screen, then a second overlay drawn over the list — and both fired (0.871,
+0.872). `Win(s)` 6/6 → 5/6 and Raid Progress 19.41% → 23.53% confirm the wins landed.
+
+**The defeat path is verified too**, by losing one. The `Failed` banner scores 0.997 and
+the screen's "Tap to continue" 0.776, so the same chain clears a lost battle as a won
+one. It also exposed a defect: `dismiss()` cleared level-up and defeat screens by
+clicking (733, 422) blind, which on the defeat screen lands inside the "Get stronger
+via:" panel — **one of whose three buttons is "Challenge Again"**, i.e. spend another
+attempt on the fight just lost. Both screens are now cleared by clicking something the
+engine can see, and nothing is clicked when neither template matches.
+
+**One threshold was quietly wrong.** `reward_confirm` is a thin translucent line and
+scores over a wide band: 0.940 and 0.918 on raid overlays, 0.776 on the defeat screen,
+0.737 on a battle-victory screen. The pack used 0.76, *inside* that band, and only
+worked because a WGC capture subtracts 0.08 — a user on the GDI fallback would have
+missed the two low ones and left the macro stuck on a result screen. Now 0.70, which
+clears the lowest real score by 0.04 and stays 0.23 above the ~0.47 an absent template
+scores here.
+
+**Also learned:** the Guild member list **re-sorts** as guardians are defeated, so fresh
+targets rise into the visible six without scrolling. That does not answer whether
+PostMessage can scroll it, but it makes the answer much less urgent.
+
+**Not verified.** The `no_attempts` and `guild_no_wins` guards (neither limit reached),
+the AP farms, and scrolling the Guild list.
 
 **One limitation this exposed in the stall guard.** It did not fire during the 10
 minutes of pressing Refresh, because `find_and_click` matched Refresh on every tick and

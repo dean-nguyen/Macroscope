@@ -53,10 +53,13 @@ def test_seed_skips_macro_without_name(tmp_path):
 
 
 def test_bundled_onmyoji_pack_seeds_all_macros(tmp_path):
-    # The real bundled Onmyoji pack seeds 8 activity macros plus the two one-shot
-    # claims (mail and sign-in, split apart since each needs its own screen open).
-    # Realm Raid is two macros, not one: the Individual list is a fixed 3x3 grid with
-    # a Refresh button, while the Guild list is a scrolling two-column member list
-    # with its own attempt counter and no Refresh — different enough that one macro
-    # could not serve both.
-    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 10
+    # Two, and the count is the point. It was ten, of which six were byte-identical in
+    # structure apart from one line choosing which limit to stop on, and none of which
+    # navigated anywhere — so the file name was documentation of which screen to open
+    # first, and the pack was one macro wearing nine labels.
+    #
+    # These two are what has actually been run against the live game end to end, and
+    # they genuinely differ from each other: the Individual list is a fixed 3x3 grid
+    # with a Refresh button, the Guild list a scrolling two-column member list with its
+    # own Win(s) counter and no Refresh.
+    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 2

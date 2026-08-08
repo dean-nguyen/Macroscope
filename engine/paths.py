@@ -15,6 +15,7 @@ import logging
 import shutil
 import sys
 from pathlib import Path
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -97,35 +98,76 @@ def migrate_legacy_data() -> None:
 
 
 def seed_starter_macros(pack: str = "onmyoji") -> None:
-    """First-run only (packaged builds): copy the bundled starter macros for
-    *pack* into the user's library so a fresh install already has the game's
-    macros (templates are still captured via Guided Capture).
+    """Copy any bundled macro for *pack* the user has not been offered before into
+    their library, so a fresh install has something to run and an existing one picks
+    up macros added since (templates are still captured via Guided Capture).
 
-    Guarded by a marker file so it never re-seeds — a user who deletes the
-    starter macros won't have them reappear.
+    Two things this used to get wrong.
+
+    It ran only in a packaged build (``sys.frozen``), so anyone running from source —
+    which is how this project is installed — saw an empty macro list and no sign that
+    a pack existed at all.
+
+    And its marker was a single flag, so it seeded once and never again: a macro added
+    to the pack afterwards never reached anyone who had already launched the app. The
+    marker now records *which* macro names have been offered, so a new one arrives on
+    the next launch while one the user deleted stays deleted.
     """
-    if not getattr(sys, "frozen", False):
-        return
     marker = data_root() / ".starter_seeded"
-    if marker.exists():
-        return
+    offered = _read_offered(marker)
 
     folder_name = pack.capitalize()
-    copied = _seed_macros(PACKS_DIR / pack, MACROS_DIR / folder_name)
+    copied = _seed_macros(PACKS_DIR / pack, MACROS_DIR / folder_name, skip=offered)
+    names = _pack_macro_names(PACKS_DIR / pack)
     try:
-        marker.write_text("1", encoding="utf-8")
+        marker.write_text(json.dumps({"offered": sorted(offered | names)}, indent=2),
+                          encoding="utf-8")
     except OSError:
         pass
     if copied:
         log.info("Seeded %d starter macro(s) into %s", copied, folder_name)
 
 
-def _seed_macros(src_dir: Path, dest_dir: Path) -> int:
+def _read_offered(marker: Path) -> set:
+    """Macro names already offered to this user.
+
+    A marker from the old format holds ``1`` and says nothing about *what* was seeded.
+    Reading that as "nothing recorded" means such a user is offered the current pack
+    once — which only ever adds macros they do not have, since an existing file is
+    never overwritten. That is the point: it is how an install from before a macro
+    existed finally receives it.
+    """
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if isinstance(data, dict) and isinstance(data.get("offered"), list):
+        return {str(n) for n in data["offered"]}
+    return set()
+
+
+def _pack_macro_names(src_dir: Path) -> set:
+    names = set()
+    if not src_dir.is_dir():
+        return names
+    for path in sorted(src_dir.glob("*.macro.json")):
+        try:
+            name = json.loads(path.read_text(encoding="utf-8")).get("name")
+        except (OSError, ValueError):
+            continue
+        if name:
+            names.add(str(name))
+    return names
+
+
+def _seed_macros(src_dir: Path, dest_dir: Path, skip: Optional[set] = None) -> int:
     """Copy each ``*.macro.json`` in *src_dir* into *dest_dir* as
-    ``<macro name>.json`` (matching how the app saves macros). Existing files
-    are left untouched. Returns the number copied."""
+    ``<macro name>.json`` (matching how the app saves macros). Names in *skip* have
+    been offered before and are left alone even if the user deleted them; existing
+    files are never overwritten. Returns the number copied."""
     if not src_dir.is_dir():
         return 0
+    skip = skip or set()
     dest_dir.mkdir(parents=True, exist_ok=True)
     count = 0
     for path in sorted(src_dir.glob("*.macro.json")):
@@ -135,7 +177,7 @@ def _seed_macros(src_dir: Path, dest_dir: Path) -> int:
             log.warning("Could not read starter macro %s", path)
             continue
         name = data.get("name")
-        if not name:
+        if not name or name in skip:
             continue
         target = dest_dir / f"{name}.json"
         if target.exists():
