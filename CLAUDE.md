@@ -371,6 +371,42 @@ window's own frames and works while it is occluded; the GDI screen-grab fallback
 photographs whatever is on top, so it is only trustworthy for the foreground window.
 See `tools/README.md` — that distinction has bitten twice.
 
+### Two clients of the same game are not the same screen
+
+Measured across two live Onmyoji windows showing the *same* guild panel, with the
+element at the *same* coordinates in both:
+
+| | client A | client B |
+|---|---|---|
+| brightness (frame mean) | 119.9 | 109.4 |
+| sharpness (Laplacian variance) | 243.8 | **157.7** |
+| the marker template scores | **1.000** | **0.697** |
+
+The second client renders about 35% softer — a different in-game graphics setting —
+and that is enough to take a 150x28 text template from a perfect match to below the
+0.72 a macro needs. Things that are *not* the cause, each ruled out by measurement:
+
+- **Not the 1-pixel client height difference.** Resampling the frame to 693-697 px
+  tall moved the score by 0.02.
+- **Not a layout offset.** The best match is at exactly (133, 306) on both.
+- **Not brightness alone.** `TM_CCOEFF_NORMED` already normalises that; with mean and
+  contrast removed by hand the two still only correlate 0.840.
+- **Not a crop that is too small.** Bigger crops are *worse* across clients — a
+  265x330 region scored 0.954 on the client it came from and 0.269 on the other.
+  Softness affects the whole panel, so more of it is more disagreement.
+
+So a template is only valid for clients rendering the way the one it was captured on
+did. Two consequences:
+
+- **Equalising the in-game graphics setting is the fix**, and it is one setting rather
+  than anything in this repo.
+- Until then, a marker failing on one client **also disables the guards built on it** —
+  the raid macros' "am I on the list screen" check and the failed-attack guard use the
+  same template, so on that client both silently stop working.
+
+`tools/match_report.py --title …` names which client it scored, which is how this was
+found; run it per window when one account works and the other does not.
+
 ### Naming one client out of several
 
 Running one macro per account is the other way to drive two clients, and it needs each

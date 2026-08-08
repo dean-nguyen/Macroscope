@@ -6,6 +6,20 @@ Drag a *tight* box around just the element, **at the window size you will bot at
 
 Wording below is from the **English Steam client**, checked against a live game.
 
+## If you run two clients, give them the same graphics setting
+
+Measured on two live windows showing the same guild panel: the second rendered about
+35% softer, and that alone took a marker template from **1.000** on one client to
+**0.697** on the other — below what a macro needs. Same coordinates, same content, and
+neither brightness nor the one-pixel size difference explained it.
+
+Capturing a bigger crop does not help; it makes it worse, because the softness is the
+whole panel. Either match the clients' in-game graphics settings, or capture a separate
+set of templates per client and point each account's macro at its own.
+
+`python tools/match_report.py --title …` names the window it scored — run it against
+each client when one account works and the other does not.
+
 ## The one rule that matters
 
 **Crop distinctive content — words, banners, icons. Never a bare button.**
