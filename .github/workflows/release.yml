@@ -37,7 +37,10 @@ jobs:
           $built = 0
           foreach ($dir in Get-ChildItem packs -Directory) {
             if (-not @(Get-ChildItem $dir.FullName -Filter *.macro.json).Count) { continue }
-            python tools/build_pack.py $dir.Name --out-dir packs-dist
+            # Stamp the tag into the manifest, so "which pack version do you have"
+            # has an answer that does not depend on remembering when it was downloaded.
+            python tools/build_pack.py $dir.Name --out-dir packs-dist `
+              --version "${{ github.ref_name }}"
             $code = $LASTEXITCODE
             # 3 means that pack's images have not been captured yet. Not a broken
             # build — it just has nothing worth downloading. Anything else non-zero is
