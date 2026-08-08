@@ -3,7 +3,7 @@
 Ready-made macros plus the template images they match against, so there is nothing to
 capture before the first run.
 
-**[Download from the latest release](https://github.com/dean-nguyen/window-macro/releases/latest)** —
+**[Download from the latest release](https://github.com/dean-nguyen/Macroscope/releases/latest)** —
 grab the `.wmbpack`, open Macroscope, and click **Import** in the sidebar.
 
 | Pack | Game | Macros | Templates | Size |

@@ -61,7 +61,7 @@ For an open-source repository the README is the product.
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| E3.1 | Decide the project name | done | **Macroscope**. Repo stays `window-macro` — renaming it would break links for no gain. The old `YuhunBot` was game-specific, and "Bot" carried the wrong connotation |
+| E3.1 | Decide the project name | done | **Macroscope**, and the repo is now `Macroscope` too. It was left as `window-macro` because renaming breaks links for no gain — that held until the history had to be rewritten anyway to drop a company email from the author metadata, and a rewrite in place does not remove it (GitHub keeps unreachable commits addressable by SHA). A fresh repo never held them. The old `YuhunBot` was game-specific, and "Bot" carried the wrong connotation |
 | E3.2 | Rewrite `README.md` around the engine | done | Leads with what it does, then the five things a naive image-matching tool gets wrong, the first four tied to a measurement |
 | E3.3 | Survive a high-DPI display | done | 6 screens verified by capture at 250% |
 | E3.4 | Window Arranger tiles correctly across monitors | done | 8 defects incl. per-monitor DPI and size-locked windows |

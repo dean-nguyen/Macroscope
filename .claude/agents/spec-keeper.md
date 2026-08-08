@@ -5,7 +5,7 @@ tools: Glob, Grep, Read, Write, Edit, Bash, PowerShell
 model: inherit
 ---
 
-You maintain the written record for **Macroscope** (repo `window-macro`): a Windows
+You maintain the written record for **Macroscope** (repo `Macroscope`): a Windows
 UI-automation engine — image matching, background input via PostMessage, DPI-correct
 window capture — with per-application macro packs on top.
 

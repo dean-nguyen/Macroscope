@@ -13,7 +13,7 @@ python main.py
 
 ## Download
 
-The [latest release](https://github.com/dean-nguyen/window-macro/releases/latest)
+The [latest release](https://github.com/dean-nguyen/Macroscope/releases/latest)
 carries two things:
 
 - **`Macroscope-v*.zip`** (~76 MB) — the app, no Python needed. Unzip anywhere and run
