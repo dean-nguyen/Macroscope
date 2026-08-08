@@ -477,6 +477,8 @@ class App(tk.Tk):
         menu = tk.Menu(self, tearoff=0, bg=T.BG3, fg=T.FG,
                        activebackground=T.ACCENT, activeforeground="#fff",
                        font=T.FONT_SMALL, bd=0)
+        menu.add_command(label="Duplicate for another window",
+                         command=lambda: self._duplicate_macro(name))
         menu.add_command(label="Move to folder...", command=lambda: self._move_macro(name))
         menu.add_separator()
         menu.add_command(label="Delete", command=lambda: self._delete_macro(name))
@@ -704,6 +706,48 @@ class App(tk.Tk):
         self._engine.delete_macro(name)
         self._rebuild_list()
         self._log(f"Deleted '{name}'")
+
+    def _duplicate_macro(self, name: str):
+        """Copy a macro so it can be pointed at another window.
+
+        One macro per game client means a copy per client, and doing that by hand is
+        find-the-file, copy, rename, edit the name inside. This is the same thing in
+        two clicks, and it deliberately drops the copy's window pin: a duplicate that
+        silently drove the *same* client as its original would look like it was
+        working while doing everything twice to one account.
+        """
+        source = self._engine.get_macro(name)
+        if source is None:
+            return
+
+        copy = {k: v for k, v in source.items()
+                if not k.startswith("_") and k not in ("target_hwnd",
+                                                       "target_position")}
+        copy["name"] = self._unused_name(name)
+        try:
+            self._engine.save_macro(copy, folder=self._engine.get_folder(name))
+        except Exception as exc:
+            messagebox.showerror("Error", str(exc), parent=self)
+            return
+
+        self._rebuild_list()
+        self._log(f"Duplicated '{name}' -> '{copy['name']}'", tag="ok")
+        messagebox.showinfo(
+            "Duplicated",
+            f"Created '{copy['name']}'.\n\n"
+            f"Open it and use Pick window to point it at the other client — the "
+            f"copy has no window of its own yet, so until you do, both macros will "
+            f"drive the same one.",
+            parent=self,
+        )
+
+    def _unused_name(self, name: str) -> str:
+        taken = {m["name"] for m in self._engine.list_macros()}
+        for suffix in range(2, 100):
+            candidate = f"{name} ({suffix})"
+            if candidate not in taken:
+                return candidate
+        return f"{name} (copy)"
 
     def _move_macro(self, name: str):
         current = self._engine.get_folder(name)
