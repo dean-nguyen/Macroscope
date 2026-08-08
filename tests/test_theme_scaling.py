@@ -21,19 +21,15 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(scope="module")
-def root():
-    """One root for the module.
+def root(tk_root):
+    """The session's one root.
 
     Creating and destroying a Tk root per test is flaky — it raised TclError on a
-    different test each run, so a real failure looked like an intermittent skip.
+    different test each run, so a real failure looked like an intermittent skip. The
+    same hazard bites across *files*, which is why the root now lives in conftest and
+    nothing destroys it mid-run.
     """
-    try:
-        window = tk.Tk()
-    except tk.TclError:                      # pragma: no cover - headless CI
-        pytest.skip("no display")
-    window.withdraw()
-    yield window
-    window.destroy()
+    return tk_root
 
 
 @pytest.fixture(autouse=True)

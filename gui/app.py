@@ -20,7 +20,7 @@ from tkinter import messagebox, filedialog, font as tkfont
 from datetime import datetime
 from typing import Optional
 
-from engine.macro_engine import MacroEngine
+from engine.macro_engine import MacroEngine, _position_index
 from engine.hotkey_listener import HotkeyListener
 from engine import pack_store
 from gui import theme as T
@@ -48,10 +48,22 @@ def _short_name(name: str, folder: str) -> str:
 
 def _window_label(macro: dict) -> str:
     """Which window this macro drives — the only thing that differs between the
-    per-account duplicates of one pack macro."""
-    pos = macro.get("target_position")
-    if pos:
-        return f"window {pos}"
+    per-account duplicates of one pack macro.
+
+    Two things this got wrong, both because `target_position` is a 0-based index that
+    nothing had ever shown to a user before:
+
+    Truthiness is not validity. `target_position: 0` is the *first* window and a
+    perfectly good pin, but `if pos:` sent it to the handle branch — so the one row
+    that was pinned by position claimed to be pinned by handle. `_position_index` is
+    the engine's own rule, borrowed rather than restated so the two cannot drift.
+
+    And the number is displayed **1-based**. The index counts from 0; a person tiling
+    two clients side by side counts the left one as the first.
+    """
+    pos = _position_index(macro.get("target_position"))
+    if pos is not None:
+        return f"window {pos + 1}"
     hwnd = macro.get("target_hwnd")
     if hwnd:
         return f"pinned #{hwnd}"

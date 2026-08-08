@@ -18,16 +18,15 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(scope="module")
-def measure():
-    """A real font measurer — the widths are the whole point of _fit_text."""
+def measure(tk_root):
+    """A real font measurer — the widths are the whole point of _fit_text.
+
+    Built on the session root rather than one of its own: a second `tk.Tk()` raises
+    TclError, so a module that makes and destroys its own root skips every Tk test in
+    every file after it. See `conftest.tk_root`.
+    """
     from tkinter import font as tkfont
-    try:
-        window = tk.Tk()
-    except tk.TclError:                      # pragma: no cover - headless CI
-        pytest.skip("no display")
-    window.withdraw()
-    yield tkfont.Font(font=("Segoe UI", 10))
-    window.destroy()
+    return tkfont.Font(root=tk_root, font=("Segoe UI", 10))
 
 
 # ── the folder prefix ─────────────────────────────────────────────────────────
@@ -99,8 +98,16 @@ def test_a_zero_width_label_is_not_truncated_to_nothing(measure):
 
 # ── which window ──────────────────────────────────────────────────────────────
 
-def test_a_pinned_position_is_what_the_row_shows():
-    assert _window_label({"target_window": "Onmyoji", "target_position": 2}) == "window 2"
+def test_a_pinned_position_is_shown_counting_from_one():
+    """The index is 0-based; a person tiling two clients counts the left one first."""
+    assert _window_label({"target_window": "Onmyoji", "target_position": 1}) == "window 2"
+
+
+def test_the_first_window_is_a_pin_like_any_other():
+    """The regression: `if pos:` is False for 0, so the one row actually pinned by
+    position claimed to be pinned by handle instead."""
+    macro = {"target_window": "Onmyoji", "target_position": 0, "target_hwnd": 1641012}
+    assert _window_label(macro) == "window 1"
 
 
 def test_a_pinned_handle_is_shown_when_there_is_no_position():
@@ -111,7 +118,15 @@ def test_a_pinned_handle_is_shown_when_there_is_no_position():
 def test_position_wins_over_a_handle():
     """Same precedence as _resolve_hwnd, so the row cannot claim the wrong window."""
     label = _window_label({"target_position": 1, "target_hwnd": 1641012})
-    assert label == "window 1"
+    assert label == "window 2"
+
+
+@pytest.mark.parametrize("bad", [-1, 1.5, "1", True, None])
+def test_an_unusable_position_is_not_shown_as_one(bad):
+    """The engine refuses to guess at these rather than picking the first window, so
+    a row must not claim a pin the run will not honour."""
+    assert _window_label({"target_window": "Onmyoji", "target_position": bad}) \
+        == "BG: Onmyoji"
 
 
 def test_an_unpinned_macro_still_names_its_target():

@@ -21,6 +21,35 @@ def _write(path, data=b"img"):
     path.write_bytes(data)
 
 
+def test_export_drops_pins_that_only_mean_something_on_the_exporter_machine(tmp_path):
+    """A pack is made to be shared, and these two name a window on one machine.
+
+    `target_position` is the dangerous one: `_resolve_hwnd` checks it *before*
+    anything else, so an importer running two clients would have the macro silently
+    driven at whichever of *their* windows sits in that spot. A stale `target_hwnd`
+    is merely useless.
+    """
+    macro = _macro("a", "x.png")
+    macro.update({"background": True, "target_window": "Onmyoji",
+                  "target_class": "Win32Window",
+                  "target_hwnd": 1641012, "target_position": 0})
+    tdir = tmp_path / "templates"
+    tdir.mkdir()
+    _write(tdir / "x.png")
+    dest = tmp_path / "pack.wmbpack"
+
+    ps.export_pack([macro], dest, name="P", templates_dir=tdir)
+
+    with zipfile.ZipFile(dest) as z:
+        shipped = json.loads(z.read("macros/a.json"))
+    assert "target_hwnd" not in shipped
+    assert "target_position" not in shipped
+    # What names the window *portably* has to survive, or the pack targets nothing.
+    assert shipped["target_window"] == "Onmyoji"
+    assert shipped["target_class"] == "Win32Window"
+    assert shipped["background"] is True
+
+
 def test_referenced_templates_dedupes():
     macros = [_macro("a", "x.png"), _macro("b", "x.png"), _macro("c", "y.png")]
     assert ps.referenced_templates(macros) == ["x.png", "y.png"]

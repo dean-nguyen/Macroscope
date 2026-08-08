@@ -14,6 +14,27 @@ monkeypatch restores after each test, so it composes with this.
 import pytest
 
 
+@pytest.fixture(scope="session")
+def tk_root():
+    """One Tk root for the whole run — never create a second, never destroy this one.
+
+    Tk does not really support a root being torn down and another built in the same
+    process: the second `tk.Tk()` raises TclError. A test file that made its own root
+    and destroyed it at module teardown therefore *disabled every Tk test in every
+    file that ran after it*, which looks like ten "no display" skips rather than a
+    failure. Measured: adding one such file took `test_theme_scaling` from 10 passing
+    to 10 skipped, on a machine with a display.
+    """
+    import tkinter as tk
+    try:
+        window = tk.Tk()
+    except tk.TclError:                      # pragma: no cover - headless CI
+        pytest.skip("no display")
+    window.withdraw()
+    yield window
+    window.destroy()
+
+
 class _Recorder:
     """Stands in for pyautogui, recording calls instead of performing them."""
 

@@ -12,6 +12,7 @@ Output goes to `.probe/` at the repo root (git-ignored).
 | `game_probe.py` | Look at a target window, measure a button, crop it into a template, click something, watch a sequence. The capture→crop→verify loop for authoring a pack. |
 | `match_report.py` | Score every captured template against the window that is up right now. Answers "why doesn't my template match?". |
 | `ui_probe.py` | Show one of the app's own windows and capture it, to check the UI renders. |
+| `build_pack.py` | Assemble a pack's `.wmbpack` from `packs/<name>/` for people to download. `release.yml` runs it. |
 
 ## Quick start
 
@@ -26,7 +27,14 @@ python tools/game_probe.py --title Onmyoji crop onmyoji_battle_ready.png 2240 13
 python tools/game_probe.py list packs/onmyoji/templates.spec.json
 python tools/match_report.py --title Onmyoji                    # --title is its own here
 python tools/ui_probe.py app editor wizard
+python tools/build_pack.py onmyoji                              # -> .probe/Onmyoji.wmbpack
+python tools/build_pack.py onmyoji --templates templates        # from a capture session
 ```
+
+`build_pack.py` is the exception to "not shipped": `release.yml` runs it, so its exit
+codes are a contract. **3** means the pack has no captured images yet — not a failure,
+but nothing worth publishing, so the release skips it. Anything else non-zero stops the
+release.
 
 ## Things these encode, learned the hard way
 

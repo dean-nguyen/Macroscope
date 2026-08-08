@@ -27,6 +27,31 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -q
 
+      # Attached to the release alongside the exe, so a pack can grow with its
+      # template set without every image landing in the repo's history twice.
+      # Builds from packs/<name>/templates — the user's own ./templates is
+      # git-ignored, so a CI checkout has nothing else to build from.
+      - name: Build the downloadable packs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $built = 0
+          foreach ($dir in Get-ChildItem packs -Directory) {
+            if (-not @(Get-ChildItem $dir.FullName -Filter *.macro.json).Count) { continue }
+            python tools/build_pack.py $dir.Name --out-dir packs-dist
+            $code = $LASTEXITCODE
+            # 3 means that pack's images have not been captured yet. Not a broken
+            # build — it just has nothing worth downloading. Anything else non-zero is
+            # a real failure and must stop the release.
+            if ($code -eq 3) { Write-Host "skipping $($dir.Name): no templates"; continue }
+            if ($code -ne 0) { throw "pack build failed for $($dir.Name) (exit $code)" }
+            $built++
+          }
+          if ($built -eq 0) { throw "no packs were built" }
+          Write-Host "built $built pack(s)"
+          # Explicit, because GitHub ends a pwsh step with `exit $LASTEXITCODE` — a
+          # skipped pack leaves 3 there and would fail the release on success.
+          exit 0
+
       - name: Build with Nuitka
         run: |
           python -m nuitka --standalone --zig --windows-console-mode=disable `
@@ -49,5 +74,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Macroscope-${{ github.ref_name }}.zip
+          files: |
+            Macroscope-${{ github.ref_name }}.zip
+            packs-dist/*.wmbpack
           generate_release_notes: true

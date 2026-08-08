@@ -11,6 +11,19 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Download
+
+The [latest release](https://github.com/dean-nguyen/window-macro/releases/latest)
+carries two things:
+
+- **`Macroscope-v*.zip`** — the app, no Python needed. Unzip and run `Macroscope.exe`.
+  It is unsigned, so Windows will show *"Windows protected your PC"* — *More info →
+  Run anyway*.
+- **`*.wmbpack`** — a ready-made pack: macros *and* the template images they match
+  against. Click **Import** in the sidebar. See [docs/PACKS.md](docs/PACKS.md) for
+  what each pack covers, and for why you should score the images against your own
+  client before trusting them.
+
 ---
 
 ## What it actually does

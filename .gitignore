@@ -221,12 +221,19 @@ _debug_*.png
 .claude/*
 !.claude/agents/
 !.claude/settings.json
-templates/
-macros/
+# Leading slash: these are the *user's* data at the repo root, and an unanchored
+# `templates/` also matched `packs/onmyoji/templates/` — the images a published pack
+# ships, which have to be versioned or the release workflow has nothing to build from.
+/templates/
+/macros/
 
 # Commercial: real build-time secrets (KeyAuth creds, HMAC secret).
 # The .example.py is committed; the real file never is.
 engine/_build_config.py
 
-# Developer probe output (tools/) — screenshots, frame dumps
+# Developer probe output (tools/) — screenshots, frame dumps, built packs
 .probe/
+
+# Where release.yml collects the .wmbpack files it attaches to a release. The images
+# they are built from live in packs/<name>/templates/ and are tracked; the zips are not.
+packs-dist/

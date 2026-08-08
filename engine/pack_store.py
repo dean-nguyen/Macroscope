@@ -38,6 +38,13 @@ PACK_EXT = ".wmbpack"
 MANIFEST_NAME = "manifest.json"
 PACK_FORMAT = 1
 
+# Pins that name a window on the machine that did the exporting, and nowhere else.
+# A pack exists to be shared, so shipping them is not "extra data" — `target_position`
+# would point the importer's macro at whichever of *their* windows happens to sit in
+# that spot, and `_resolve_hwnd` checks position before anything else. A stale
+# `target_hwnd` is merely useless; a valid position is actively wrong.
+_MACHINE_SPECIFIC = frozenset({"target_hwnd", "target_position"})
+
 
 def _safe_folder(name: str) -> str:
     """Reduce a name to a single safe folder segment."""
@@ -93,7 +100,8 @@ def export_pack(
     with zipfile.ZipFile(dest_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2))
         for macro in macros:
-            clean = {k: v for k, v in macro.items() if not k.startswith("_")}
+            clean = {k: v for k, v in macro.items()
+                     if not k.startswith("_") and k not in _MACHINE_SPECIFIC}
             zf.writestr(f"macros/{macro['name']}.json", json.dumps(clean, indent=2))
         for ref in manifest["templates"]:
             src = templates_dir / ref
