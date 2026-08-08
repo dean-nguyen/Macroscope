@@ -53,6 +53,40 @@ def _can_recognise(actions: List[Dict]) -> bool:
     return False
 
 
+# Stop a looping macro that has done *nothing at all* this long — recognised nothing
+# and sent no input. That is not the dangerous case the stall guard exists for; it is
+# the silent one. A macro whose outer check never matches gates every click, so it
+# clicks nothing, so the stall guard's condition can never be met, and it loops
+# forever without a word: measured as the outcome of an unrecognised popup covering
+# the target list.
+#
+# Deliberately far longer than the stall timeout, because "doing nothing" is also what
+# a legitimate watcher does — one waiting hours for a daily reset should set
+# idle_timeout_ms: 0. Nothing here can tell those two apart, and this file should not
+# pretend otherwise.
+DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000
+
+
+def _timeout_field(macro: Dict, field: str, default: int) -> int:
+    """A millisecond timeout from the macro, tolerating an absent or unusable value.
+
+    Coerced here rather than trusted, because these are only *read* on an iteration
+    that met their condition: a string would otherwise raise a TypeError minutes into
+    a run that had been working fine.
+    """
+    value = macro.get(field)
+    if value is None:
+        return default
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _idle_timeout_of(macro: Dict) -> int:
+    return _timeout_field(macro, "idle_timeout_ms", DEFAULT_IDLE_TIMEOUT_MS)
+
+
 def _stall_timeout_of(macro: Dict) -> int:
     """The macro's stall timeout in ms, tolerating an absent or unusable value.
 
@@ -60,13 +94,7 @@ def _stall_timeout_of(macro: Dict) -> int:
     iteration that recognised nothing: a string would otherwise raise a TypeError
     minutes into a run that had been working fine.
     """
-    value = macro.get("stall_timeout_ms")
-    if value is None:
-        return DEFAULT_STALL_TIMEOUT_MS
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return DEFAULT_STALL_TIMEOUT_MS
+    return _timeout_field(macro, "stall_timeout_ms", DEFAULT_STALL_TIMEOUT_MS)
 
 
 def _clean_folder(folder: str) -> str:
@@ -93,9 +121,10 @@ class MacroEngine:
         self._macros: Dict[str, Dict] = {}          # name → macro dict
         self._running: Dict[str, threading.Thread] = {}
         self._stop_flags: Dict[str, threading.Event] = {}
-        # Names the stall guard stopped, so a sequential folder run can tell that
-        # apart from the user hitting Stop.
+        # Names a guard stopped, so a sequential folder run can tell that apart from
+        # the user hitting Stop, and why — so the app can say so.
         self._stalled: set = set()
+        self._stop_reasons: Dict[str, str] = {}
         self._lock = threading.Lock()
         self._log = log_fn or print
 
@@ -324,6 +353,7 @@ class MacroEngine:
         with self._lock:
             self._stop_flags[name] = stop_event
             self._stalled.discard(name)
+            self._stop_reasons.pop(name, None)
 
         def worker():
             try:
@@ -411,6 +441,7 @@ class MacroEngine:
                         self._stop_flags[name] = per_stop
                         self._running[name] = threading.current_thread()
                         self._stalled.discard(name)
+                        self._stop_reasons.pop(name, None)
                     try:
                         self._execute(macro, per_stop)
                         self._log(f"[done] {name}")
@@ -479,6 +510,8 @@ class MacroEngine:
 
         last_recognised = time.monotonic()
         acted_blind = False       # sent input since the last thing it recognised
+        idle_ms_limit = _idle_timeout_of(macro)
+        last_did_something = time.monotonic()
 
         def _run_once() -> Dict:
             """Run one iteration. Returns what the iteration observed and did."""
@@ -509,30 +542,61 @@ class MacroEngine:
         if loop:
             while not stop.is_set():
                 tick = _run_once()
+                now = time.monotonic()
                 if tick["recognised"]:
-                    last_recognised = time.monotonic()
+                    last_recognised = now
                     acted_blind = False
                 elif tick["sent_input"]:
                     acted_blind = True
+                if tick["recognised"] or tick["sent_input"]:
+                    last_did_something = now
+
                 if guarded and acted_blind:
-                    idle_ms = (time.monotonic() - last_recognised) * 1000
-                    if idle_ms >= stall_ms:
-                        self._log(
-                            f"[stalled] {macro['name']}: it has been sending input for "
-                            f"{idle_ms / 1000:.0f}s without recognising anything it "
-                            f"looks for — stopping. The window is probably showing "
-                            f"something unexpected (a prompt, a disconnect, or a "
-                            f"changed UI). Raise or disable this with "
-                            f"\"stall_timeout_ms\"."
-                        )
-                        with self._lock:
-                            self._stalled.add(macro["name"])
-                        stop.set()
+                    blind_ms = (now - last_recognised) * 1000
+                    if blind_ms >= stall_ms:
+                        self._guard_stop(macro["name"], stop, "stalled", (
+                            f"it has been sending input for {blind_ms / 1000:.0f}s "
+                            f"without recognising anything it looks for. The window "
+                            f"is probably showing something unexpected — a prompt, a "
+                            f"disconnect, or a changed UI. Raise or disable this with "
+                            f"\"stall_timeout_ms\"."))
                         break
+
+                if idle_ms_limit > 0:
+                    quiet_ms = (now - last_did_something) * 1000
+                    if quiet_ms >= idle_ms_limit:
+                        self._guard_stop(macro["name"], stop, "idle", (
+                            f"it has neither recognised anything nor sent any input "
+                            f"for {quiet_ms / 1000:.0f}s. Nothing is going wrong — it "
+                            f"is simply not doing anything, which usually means the "
+                            f"window is showing a screen this macro does not know, or "
+                            f"it was started on the wrong one. Raise or disable this "
+                            f"with \"idle_timeout_ms\"."))
+                        break
+
                 if loop_delay_ms > 0 and not stop.is_set():
                     stop.wait(timeout=jitter.delay(loop_delay_ms) / 1000.0)
         else:
             _run_once()
+
+    def _guard_stop(self, name: str, stop: threading.Event, kind: str,
+                    why: str) -> None:
+        """Stop a macro because a safety guard decided to, and record why.
+
+        The reason is kept so the app can tell the user what happened rather than
+        leaving a stopped macro and a log line they may never expand — and so a
+        sequential folder run can tell a guard stop from the user pressing Stop.
+        """
+        self._log(f"[{kind}] {name}: {why}")
+        with self._lock:
+            self._stalled.add(name)
+            self._stop_reasons[name] = why
+        stop.set()
+
+    def stopped_reason(self, name: str) -> Optional[str]:
+        """Why a guard stopped *name*, or None if it ended for any other reason."""
+        with self._lock:
+            return self._stop_reasons.get(name)
 
     def _warn_missing_templates(self, macro: Dict) -> None:
         """Report, once per run, which templates this macro needs but that have
@@ -734,22 +798,24 @@ def _validate(macro: Dict) -> None:
 
 
 def _validate_safety_fields(macro: Dict) -> None:
-    """Reject an unusable ``stall_timeout_ms`` or ``humanize`` at load.
+    """Reject an unusable timeout or ``humanize`` at load.
 
-    Both are only read while a macro is already running — the timeout on an
-    iteration that recognised nothing, the jitter settings at macro start — so a
+    All of them are only read while a macro is already running — a timeout on the
+    iteration that meets its condition, the jitter settings at macro start — so a
     string where a number belongs used to surface as a TypeError minutes into a run
     that had been working. Failing here names the field instead.
     """
-    if "stall_timeout_ms" in macro:
-        value = macro["stall_timeout_ms"]
+    for field in ("stall_timeout_ms", "idle_timeout_ms"):
+        if field not in macro:
+            continue
+        value = macro[field]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(
-                f"'stall_timeout_ms' must be a number of milliseconds "
-                f"(0 disables the stall guard), got {value!r}"
+                f"'{field}' must be a number of milliseconds (0 disables that "
+                f"guard), got {value!r}"
             )
         if value < 0:
-            raise ValueError("'stall_timeout_ms' cannot be negative; use 0 to disable")
+            raise ValueError(f"'{field}' cannot be negative; use 0 to disable")
 
     if "humanize" in macro:
         setting = macro["humanize"]

@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Tests must never send real input
+
+`tests/conftest.py` replaces `action_runner.pyautogui` and the `background_input.post_*`
+functions for the whole suite, and it is load-bearing rather than tidy. Several tests
+build a macro with a `click` and stub `post_click` — but a macro with no
+`background`/`target_hwnd` does not take that path: `_click` falls through to pyautogui
+and clicks the *developer's* screen at whatever coordinate the fixture used. They had
+been doing it on every run, locally and on CI, for as long as those tests existed.
+Removing the fixture makes one of them call pyautogui for real, which is how this was
+confirmed.
+
 ## Commands
 
 ```bash
@@ -294,7 +305,20 @@ features and asking for them defeats the point.
     exact expected colour on every single tick.
   - A macro with no recognising action anywhere in its tree (`_can_recognise`) is not
     guarded at all — it recognises nothing by construction, so the guard has no signal.
-  It cannot see a macro that **recognises something and still makes no progress**.
+- **`idle_timeout_ms` is the other half, and a separate guard on purpose.** The stall
+  guard's condition is *clicking* blind, so a macro that sends no input can never meet
+  it — and both raid macros gate every click behind an "am I on the right screen"
+  check, so an unrecognised popup over the list leaves them looping forever in
+  silence. That is the measured case, not a hypothetical. `idle_timeout_ms` (15 min,
+  `0` disables) stops a looping macro that has recognised nothing *and* sent no input.
+  It is much longer than the stall timeout because doing nothing is also what a patient
+  watcher does, and **nothing in the engine can tell those apart** — which is why both
+  are timeouts the author sets rather than something cleverer.
+- **A guard stop records its reason** (`_guard_stop` → `stopped_reason`), and
+  `gui/app.py` puts it in the status bar as well as the log. A guard fires when nobody
+  is watching; leaving the explanation in a collapsible log panel wastes it.
+- The stall guard still cannot see a macro that **recognises something and makes no
+  progress**.
   Measured: a Realm Raid run pressed Refresh 23 times in 10 minutes without refreshing
   anything, because a dialog it never answered was in the way — and `find_and_click`
   matched Refresh every tick, so the clock reset every tick. That is a real gap in what

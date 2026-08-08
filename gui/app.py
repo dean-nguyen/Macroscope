@@ -734,8 +734,16 @@ class App(tk.Tk):
             self._update_toggle_btn(name, running=True)
 
     def _on_macro_done(self, name: str):
-        self._status(f"'{name}' finished")
         self._update_toggle_btn(name, running=False)
+        # A macro that stopped itself has something to say. Saying it only in the log
+        # is not enough: the log collapses, and the whole point of a guard is that
+        # nobody was watching when it fired.
+        reason = self._engine.stopped_reason(name)
+        if reason:
+            self._status(f"'{name}' stopped itself — {reason.split('.')[0]}")
+            self._log(f"'{name}' stopped itself. {reason}", tag="warn")
+        else:
+            self._status(f"'{name}' finished")
 
     def _update_toggle_btn(self, name: str, running: bool):
         btn = self._toggle_btns.get(name)

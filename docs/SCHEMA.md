@@ -32,6 +32,7 @@ action `type` is rejected at load.
 | `target_class` | string | none | Win32 window class, written by the editor's window picker. Filters the title search, and it is the reliable signal: the class outlives the handle, so next session the stale `target_hwnd` is dropped and this is what stops the title search picking a browser tab. A class that matches nothing is **ignored rather than enforced** — an application that changes it in an update must not silently stop being found. |
 | `target_hwnd` | int | none | Exact handle, written by the editor's window picker. Preferred over the title while the handle is still valid; a handle saved in a previous session is stale, and the title search takes over. Not worth hand-writing. |
 | `stall_timeout_ms` | int | `300000` (5 min) | Stop a **looping** macro that has been *sending input* this long without recognising anything it looks for, and log why. It exists so there is a safety stop that needs no template: it catches a verification prompt, a disconnect, maintenance and a UI change alike, where a per-game CAPTCHA template catches one of those and only if the user could capture it. Deliberately far longer than any battle or loading screen — it is not a progress timeout. `0` disables it. Ignored when `loop` is false, and inert for a macro that has no recognising action to judge by (see below). |
+| `idle_timeout_ms` | int | `900000` (15 min) | Stop a **looping** macro that has done nothing at all this long — recognised nothing *and* sent no input — and say so. It exists because the stall guard cannot see this case: a macro whose outer check gates every click sends no input when that check misses, so it can never meet the stall guard's condition and would loop forever in silence. Deliberately far longer than `stall_timeout_ms`, because doing nothing is also what a patient watcher does. `0` disables it, which is what a macro waiting hours for a daily reset wants. |
 | `humanize` | `false` \| `true` \| object | `true` | Scatter timing and click position. It exists because before it every delay was a fixed constant and every click landed on the exact centre pixel of the match, which is a metronome hitting one pixel forever. `false` turns it off — reasonable for a macro that must hit an exact pixel. An object tunes it: `{"timing_pct": 0.15, "click_px": 3}` are the defaults; `timing_pct` is a fraction (so a short `wait` and a long poll both stay sensible) and `click_px` is a radius in pixels. Either may be `0` on its own. **This does not make automation undetectable.** It removes the obvious signature and no more. |
 
 Both are checked at load: a `stall_timeout_ms` that is not a number, or a `humanize`
@@ -57,6 +58,21 @@ The condition is **clicking blind**, not merely matching nothing:
 A stall does **not** cancel the rest of a sequential folder run, unlike the user
 pressing Stop. One macro losing track of its screen is no reason to abandon the
 others.
+
+### The other guard: doing nothing at all
+
+`idle_timeout_ms` answers a different question, and the two are separate because
+neither can be derived from the other:
+
+| | sending input | not sending input |
+|---|---|---|
+| **recognising something** | working | working (a watcher that sees its element) |
+| **recognising nothing** | `stall_timeout_ms` — clicking blind | `idle_timeout_ms` — doing nothing |
+
+Both stop the macro and record why, so the app can tell the user rather than leaving a
+stopped macro and a log line nobody expanded. Both are timeouts because **nothing here
+can tell a stuck macro from a patient one** — that is a matter of what the macro is
+for, which only its author knows.
 
 ### What jitter touches
 
