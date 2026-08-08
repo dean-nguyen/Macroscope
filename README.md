@@ -105,15 +105,17 @@ are used exactly as written; see `docs/SCHEMA.md`.
 3. **Write the actions,** or start from a pack.
 4. **Run it.** The log shows every check, its score, and where it matched.
 
-Diagnosing a template that will not match:
+Diagnosing a template that will not match: **Tools → Inspector → templates**, pick the
+window, Score templates. It scores every template you have captured against the window
+as it is right now, and says where each one landed. A present template scores around
+0.92–0.99; absent ones reach about 0.47. If everything you own scores in the 0.40s,
+nothing is matching.
+
+The same report from a terminal, for scripting a pack:
 
 ```bash
 python tools/match_report.py --title "Some Game"
 ```
-
-It scores every template you have captured against the window as it is right now. A
-present template scores around 0.92; absent ones reach about 0.47. If everything you
-own scores in the 0.40s, nothing is matching.
 
 ## Packs
 
@@ -136,7 +138,8 @@ engine/
   rect_detector.py     contour-based rectangle detection
   pack_store.py        .wmbpack import / export
   template_check.py    judges a crop before it is saved
-gui/                   tkinter app: macro list, editor, capture wizard, arranger
+  match_report.py      scores every template against a live window
+gui/                   tkinter app: macro list, editor, capture wizard, inspector
 tools/                 developer probes — see tools/README.md
 docs/SCHEMA.md         every macro field and action, with its real default
 docs/                  backlog and PRDs
@@ -147,7 +150,7 @@ CLAUDE.md              engine behaviour, and the measurements behind it
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests/          # 120 tests
+python -m pytest tests/          # 227 tests
 python tools/import_check.py     # what CI also runs
 ```
 

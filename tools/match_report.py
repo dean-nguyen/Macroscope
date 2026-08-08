@@ -1,11 +1,11 @@
-"""Score every captured template against a live window.
-
-Answers the question users and pack authors actually ask: "why doesn't my
-template match?" — by showing what each one scores right now, where it landed,
-and whether the position is plausible.
+"""Score every captured template against a live window, from the command line.
 
     python tools/match_report.py --title Onmyoji
     python tools/match_report.py --title Onmyoji --threshold 0.85 --pattern "onmyoji_*"
+
+The scoring itself lives in `engine/match_report.py`, so this and the app's
+Templates tab cannot drift apart — the CLI existing alone is what made this
+diagnostic invisible to everyone who did not read the source.
 
 Scores are raw TM_CCOEFF_NORMED with anticorrelation floored at 0, so the number
 means what it says. Measured on a live game window: a template that IS on screen
@@ -35,17 +35,15 @@ import win32gui
 
 
 def find_window(title_substring: str):
-    hits = []
+    from engine.background_input import find_all_windows
 
-    def cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            text = win32gui.GetWindowText(hwnd)
-            if title_substring.lower() in text.lower():
-                hits.append((hwnd, text))
-
-    win32gui.EnumWindows(cb, None)
+    hits = find_all_windows(title_substring)
     if not hits:
         sys.exit(f"No visible window matching {title_substring!r}")
+    if len(hits) > 1:
+        print(f"{len(hits)} windows match {title_substring!r}; using "
+              f"{hits[0][1]!r}. Others: "
+              + ", ".join(repr(t) for _h, t in hits[1:4]))
     return hits[0]
 
 
@@ -56,62 +54,33 @@ def main():
     parser.add_argument("--pattern", default="*.png")
     args = parser.parse_args()
 
-    import cv2
-    import numpy as np
-
-    import engine.image_matcher as im
-    from engine.paths import TEMPLATES_DIR
+    from engine import match_report as mr
 
     hwnd, title = find_window(args.title)
-    if win32gui.IsIconic(hwnd):
-        sys.exit(f"{title!r} is minimised — no frames are produced while it is, "
-                 f"so every template would report 'no match'")
+    try:
+        report = mr.score_templates(hwnd, threshold=args.threshold,
+                                    pattern=args.pattern, title=title)
+    except mr.ReportError as exc:
+        sys.exit(str(exc))
 
-    # Every template gets a scale search here, whatever it costs. Scoring a whole
-    # directory in one pass is exactly the batch the ration exists to slow down, and
-    # a report that says "no match" because the previous template spent the budget is
-    # worse than a slow report. Measured: five templates in a row all read "no match"
-    # while the second one's button was plainly on screen and scored 0.94 alone.
-    im.set_unrationed_discovery(True)
-
-    haystack = im._grab_haystack(hwnd, None)
-    if haystack is None:
-        sys.exit("could not capture the window")
-    print(f"target {title!r}  haystack {haystack.shape[1]}x{haystack.shape[0]}")
-    print(f"threshold {args.threshold} "
-          f"(effective {args.threshold - im._WGC_THRESHOLD_OFFSET:.2f} if WGC captured)\n")
-
-    templates = sorted(TEMPLATES_DIR.glob(args.pattern))
-    if not templates:
-        sys.exit(f"no templates matching {args.pattern!r} in {TEMPLATES_DIR}")
+    print(f"target {report.title!r}  "
+          f"haystack {report.haystack[0]}x{report.haystack[1]}")
+    print(f"threshold {report.threshold} "
+          f"(effective {report.effective:.2f} if WGC captured)\n")
 
     print(f"{'template':<36} {'std':>6} {'score':>7}  where")
     print("-" * 70)
-    matched = 0
-    for path in templates:
-        std = float(cv2.imread(str(path)).std())
-        try:
-            result = im.find_template(f"templates/{path.name}", hwnd=hwnd,
-                                      threshold=args.threshold)
-        except im.TemplateUnusable:
-            print(f"{path.name:<36} {std:6.1f} {'—':>7}  REFUSED: flat/featureless")
-            continue
-        except im.TemplateMissing:
-            print(f"{path.name:<36} {'—':>6} {'—':>7}  missing on disk")
-            continue
-
-        if result:
-            cx, cy, score = result
-            matched += 1
-            print(f"{path.name:<36} {std:6.1f} {score:7.3f}  ({cx},{cy})")
+    for row in report.rows:
+        std = f"{row.std:6.1f}" if row.std is not None else f"{'—':>6}"
+        if row.matched:
+            print(f"{row.name:<36} {std} {row.score:7.3f}  ({row.at[0]},{row.at[1]})")
+        elif row.status == mr.NO_MATCH:
+            print(f"{row.name:<36} {std} {'-':>7}  no match")
         else:
-            print(f"{path.name:<36} {std:6.1f} {'-':>7}  no match")
+            print(f"{row.name:<36} {std} {'—':>7}  {row.status.upper()}: {row.note}")
 
-    print(f"\n{matched}/{len(templates)} matched on the screen that is up right now.")
-    print("Only templates whose element is actually visible should match. If one "
-          "matches while its element is off-screen, the crop is not distinctive "
-          "enough — Onmyoji reuses one button chrome, and a plain 'OK' was "
-          "measured scoring 0.91 against a completely different button.")
+    print(f"\n{report.summary}.")
+    print(mr.ADVICE)
 
 
 if __name__ == "__main__":

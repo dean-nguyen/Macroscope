@@ -130,10 +130,12 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   minute, which is worse than converging a few seconds later. Measured with the adaptive
   floor: one search per tick, the visible template found after 5 ticks, every later tick
   back to 0.36 s.
-- **`set_unrationed_discovery()` is for `tools/` only.** Scoring a whole templates
-  directory in one pass is exactly the batch the floor exists to slow down, and a report
-  that says "no match" because the previous template spent the budget is worse than a
-  slow one. A macro must never turn it on.
+- **`unrationed_discovery()` is for the template report only.** Scoring a whole
+  templates directory in one pass is exactly the batch the floor exists to slow down,
+  and a report that says "no match" because the previous template spent the budget is
+  worse than a slow one. A macro must never turn it on — and it is a context manager
+  rather than a setter because the report now runs *inside the app*, in the same
+  process as the macros, so a leak would make every later run pay for it.
 - **Do not add a downscaling pre-filter.** One was tried and removed. Shrinking both
   images before comparing only works when the element's position aligns with the
   sampling grid: the same button lost 0.0000 at a multiple-of-4 offset and 0.1181 one

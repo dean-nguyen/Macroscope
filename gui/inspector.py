@@ -279,6 +279,117 @@ class InspectorWindow:
                 "photo": None,
             }
 
+        self._build_templates_tab()
+
+    def _build_templates_tab(self):
+        """A tab that scores every captured template against this window.
+
+        The answer to "why doesn't my template match?", which until now was only
+        reachable from a CLI in `tools/` — invisible to anyone who had not read the
+        source, though it is the diagnostic that found the discovery-ration bug, a
+        wrong threshold and two duplicate templates in three days of live use.
+        """
+        frame = ttk.Frame(self._notebook)
+        self._notebook.add(frame, text="templates")
+
+        bar = ttk.Frame(frame)
+        bar.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(bar, text="Score templates",
+                   command=self._score_templates).pack(side=tk.LEFT)
+        ttk.Label(bar, text="threshold").pack(side=tk.LEFT, padx=(12, 4))
+        self._threshold_entry = ttk.Entry(bar, width=6)
+        self._threshold_entry.insert(0, "0.80")
+        self._threshold_entry.pack(side=tk.LEFT)
+        self._templates_status = ttk.Label(bar, text="", foreground="gray")
+        self._templates_status.pack(side=tk.LEFT, padx=12)
+
+        self._templates_text = widgets.ScrolledText(frame, height=24, width=80)
+        self._templates_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
+        self._templates_text.insert(
+            tk.END,
+            "Pick a window above, then Score templates.\n\n"
+            "Scores are raw correlation. Measured on a live game window, a template "
+            "whose element is on screen scores about 0.92 to 0.99, and absent ones "
+            "reach about 0.47. If everything you own scores in the 0.40s, nothing is "
+            "matching — check you picked the right window, and that it is not "
+            "minimised.\n")
+
+    def _score_templates(self):
+        """Run the report off the UI thread; it takes seconds on a large pack."""
+        try:
+            hwnd = int(self._hwnd_entry.get())
+        except ValueError:
+            self._templates_status.configure(text="pick a window first")
+            return
+        try:
+            threshold = float(self._threshold_entry.get())
+        except ValueError:
+            threshold = 0.80
+            self._threshold_entry.delete(0, tk.END)
+            self._threshold_entry.insert(0, "0.80")
+
+        self._templates_status.configure(text="scoring…")
+        self._templates_text.delete("1.0", tk.END)
+
+        def work():
+            from engine import match_report as mr
+            try:
+                report = mr.score_templates(hwnd, threshold=threshold)
+            except mr.ReportError as exc:
+                self._post(self._show_template_error, str(exc))
+                return
+            except Exception as exc:                      # pragma: no cover
+                self._post(self._show_template_error, repr(exc))
+                return
+            self._post(self._show_template_report, report)
+
+        threading.Thread(target=work, daemon=True, name="match-report").start()
+
+    def _post(self, fn, *args):
+        """Hand a result back to the UI thread, tolerating a window that has gone.
+
+        Scoring takes seconds, and the user can close the Inspector while it runs —
+        after which `after()` raises out of the worker and prints a traceback at them
+        for having closed a window.
+        """
+        try:
+            self.window.after(0, fn, *args)
+        except (tk.TclError, RuntimeError):
+            pass
+
+    def _show_template_error(self, message: str):
+        self._templates_status.configure(text="")
+        self._templates_text.delete("1.0", tk.END)
+        self._templates_text.insert(tk.END, message + "\n")
+
+    def _show_template_report(self, report):
+        from engine import match_report as mr
+
+        lines = [
+            f"{report.title}   captured {report.haystack[0]}x{report.haystack[1]}",
+            f"threshold {report.threshold:.2f} "
+            f"(effective {report.effective:.2f} when the frame came from WGC)",
+            "",
+            f"{'template':<38}{'std':>6}{'score':>8}   where",
+            "-" * 72,
+        ]
+        for row in report.rows:
+            std = f"{row.std:6.1f}" if row.std is not None else f"{'—':>6}"
+            if row.matched:
+                where = f"({row.at[0]},{row.at[1]})"
+                lines.append(f"{row.name:<38}{std}{row.score:8.3f}   {where}")
+            elif row.status == mr.NO_MATCH:
+                lines.append(f"{row.name:<38}{std}{'-':>8}   not on this screen")
+            else:
+                lines.append(f"{row.name:<38}{std}{'—':>8}   "
+                             f"{row.status.upper()}: {row.note}")
+
+        lines += ["", report.summary + ".", "", mr.ADVICE, ""]
+        self._templates_status.configure(
+            text=f"{report.matched}/{len(report.rows)} matched")
+        self._templates_text.delete("1.0", tk.END)
+        self._templates_text.insert(tk.END, "\n".join(lines))
+
     def _pick_window(self):
         """Show list of open windows to pick from."""
         import win32gui

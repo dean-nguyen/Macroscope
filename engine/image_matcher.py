@@ -14,6 +14,7 @@ Coordinate spaces
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -149,9 +150,27 @@ def set_unrationed_discovery(enabled: bool = True) -> None:
     """Let every template have a scale search, whatever it costs (diagnostics only).
 
     A macro must never turn this on: it is the cost the rationing exists to bound.
+    Prefer `unrationed_discovery()`, which cannot be left on.
     """
     global _unrationed
     _unrationed = bool(enabled)
+
+
+@contextlib.contextmanager
+def unrationed_discovery():
+    """Scope the diagnostics override so it cannot outlive the report that wanted it.
+
+    It is a module global, and the in-app template report runs in the same process as
+    the macros. Left on, every later run pays for unlimited scale searches — a
+    diagnostic that quietly changes how the thing being diagnosed behaves.
+    """
+    global _unrationed
+    previous = _unrationed
+    _unrationed = True
+    try:
+        yield
+    finally:
+        _unrationed = previous
 
 # (resolved template path, haystack w, haystack h) -> scale that matched
 _scale_cache: dict = {}
