@@ -147,14 +147,20 @@ def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> None:
     say = log_fn or (lambda msg: log.info("%s", msg))
     marker = data_root() / ".starter_seeded"
     seeded = _read_seeded(marker)
+    seeded_images = _read_seeded(marker, key="templates")
 
+    pack_dir = PACKS_DIR / pack
     folder_name = pack.capitalize()
     dest_dir = MACROS_DIR / folder_name
-    added, updated, diverged = _sync_macros(PACKS_DIR / pack, dest_dir, seeded)
+    added, updated, diverged = _sync_macros(pack_dir, dest_dir, seeded)
+    img_added, img_updated, img_diverged = _sync_templates(
+        pack_dir / "templates", TEMPLATES_DIR, seeded_images)
 
     try:
-        marker.write_text(json.dumps({"seeded": seeded}, indent=2, sort_keys=True),
-                          encoding="utf-8")
+        marker.write_text(
+            json.dumps({"seeded": seeded, "templates": seeded_images},
+                       indent=2, sort_keys=True),
+            encoding="utf-8")
     except OSError:
         pass
 
@@ -167,6 +173,75 @@ def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> None:
     for name in diverged:
         say(f"'{name}' differs from the {folder_name} pack, so it was left as it is. "
             f"Delete it to take the pack's version.")
+    if img_added:
+        say(f"Added {len(img_added)} image(s) from the {folder_name} pack")
+    if img_updated:
+        say(f"Updated {len(img_updated)} image(s) to the current {folder_name} pack")
+    for name in img_diverged:
+        say(f"Image '{name}' differs from the {folder_name} pack, so your version was "
+            f"kept. Score it with the match report if it stopped working.")
+
+
+# Kept local rather than imported from template_store, which imports *this* module.
+_SEEDABLE_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp")
+
+
+def _sync_templates(src_dir: Path, dest_dir: Path, seeded: dict):
+    """Add, update or leave each image a pack publishes. Mutates *seeded*.
+
+    The exe bundles `packs/` wholesale (`--include-data-dir`), so once a pack carries
+    its images the install already *has* them — and before this, seeding copied only
+    the macro files, so a fresh install listed every template as missing while the
+    files sat inside it. That is the "installed it and nothing happens" complaint, and
+    the data was there all along.
+
+    Same three outcomes as `_sync_macros`, and the same reason: a user who re-captured
+    a template because the shipped one did not match their client must not have it
+    overwritten on the next launch, and one who *deleted* it must not have it come
+    back. Both are recognised by comparing hashes rather than guessing.
+    """
+    added, updated, diverged = [], [], []
+    if not src_dir.is_dir():
+        return added, updated, diverged
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for path in sorted(src_dir.iterdir()):
+        if path.suffix.lower() not in _SEEDABLE_IMAGE_EXTS:
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            log.warning("Could not read pack image %s", path)
+            continue
+
+        name = path.name
+        digest = _digest_bytes(data)
+        target = dest_dir / name
+        known = seeded.get(name)
+
+        if not target.exists():
+            # Never offered, or the user deleted it. Only the first is ours to fix —
+            # deleting a template that does not match your client is a real decision.
+            if known is not None:
+                continue
+            target.write_bytes(data)
+            seeded[name] = digest
+            added.append(name)
+            continue
+
+        try:
+            current = _digest_bytes(target.read_bytes())
+        except OSError:
+            continue
+        if current == digest:
+            seeded[name] = digest
+        elif known is not None and current == known:
+            target.write_bytes(data)
+            seeded[name] = digest
+            updated.append(name)
+        else:
+            diverged.append(name)
+    return added, updated, diverged
 
 
 def _sync_macros(src_dir: Path, dest_dir: Path, seeded: dict):
@@ -219,19 +294,25 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _read_seeded(marker: Path) -> dict:
-    """What was written for each macro name, as ``{name: digest}``.
+def _digest_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _read_seeded(marker: Path, key: str = "seeded") -> dict:
+    """What was written for each name, as ``{name: digest}``.
 
     Two older formats read as "nothing recorded": a bare ``1``, and a list of names
     with no hashes. Both mean the same thing — we cannot tell an untouched file from
     an edited one, so such a file is left alone and reported rather than overwritten.
+    A marker written before images were seeded has no ``templates`` key, which reads
+    the same way: the images already on disk are treated as the user's.
     """
     try:
         data = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if isinstance(data, dict) and isinstance(data.get("seeded"), dict):
-        return {str(k): str(v) for k, v in data["seeded"].items()}
+    if isinstance(data, dict) and isinstance(data.get(key), dict):
+        return {str(k): str(v) for k, v in data[key].items()}
     return {}
 
 
