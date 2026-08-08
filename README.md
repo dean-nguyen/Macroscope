@@ -16,13 +16,18 @@ python main.py
 The [latest release](https://github.com/dean-nguyen/window-macro/releases/latest)
 carries two things:
 
-- **`Macroscope-v*.zip`** — the app, no Python needed. Unzip and run `Macroscope.exe`.
-  It is unsigned, so Windows will show *"Windows protected your PC"* — *More info →
-  Run anyway*.
-- **`*.wmbpack`** — a ready-made pack: macros *and* the template images they match
-  against. Click **Import** in the sidebar. See [docs/PACKS.md](docs/PACKS.md) for
-  what each pack covers, and for why you should score the images against your own
-  client before trusting them.
+- **`Macroscope-v*.zip`** (~76 MB) — the app, no Python needed. Unzip anywhere and run
+  `Macroscope.exe`; your macros and images go to `%APPDATA%\Macroscope`, so installing
+  into Program Files is fine. It is **unsigned**, so Windows will show *"Windows
+  protected your PC"* — *More info → Run anyway*. Most of the size is OpenCV.
+- **`*.wmbpack`** (~89 KB) — a ready-made pack: macros *and* the template images they
+  match against. Click **Import** in the sidebar. See
+  [docs/PACKS.md](docs/PACKS.md) for what each pack covers, and for why you should
+  score the images against your own client before trusting them.
+
+The exe also brings its bundled pack with it, so a fresh install opens with the Onmyoji
+macros and their images already in place — the `.wmbpack` is for adding a pack to an
+install you already have, or for one that is newer than your exe.
 
 ---
 
@@ -53,7 +58,7 @@ finds it on screen and clicks inside it.
 
 ## What makes it more than a click recorder
 
-Six things this handles that a naive image-matching macro tool does not. Most were
+Seven things this handles that a naive image-matching macro tool does not. Most were
 found by measuring on a live application, and those measurements are written down in
 `CLAUDE.md`.
 
@@ -78,13 +83,24 @@ a single capture. That is cheaper, but mostly it is *correct*: on an animated sc
 two captures taken milliseconds apart are not the same image, and checks that
 disagreed about what was on screen produced real bugs.
 
+**One macro can drive several windows.** Two clients of the same game side by side is
+the ordinary case, and a run is keyed by *(macro, window)* rather than by name — so one
+macro started on two windows is two runs, with their own guards and their own log lines.
+When a macro's targeting matches more than one window the app asks which you meant
+rather than taking the first. To fix a macro to one account, pin it by **screen
+position** (`target_position`): a window handle is new every launch, but the left-hand
+window is still the left-hand window.
+
 **It stops when it is clicking at a screen it cannot read.** If a looping macro spends
 five minutes sending input without recognising anything it looks for, it stops and says
 so. That is deliberately generic: it catches a verification prompt, a disconnect,
 maintenance downtime *and* the application changing its UI — none of which needs a
 template, and the last of which no template could have anticipated. A macro that
 recognises nothing but also clicks nothing is a watcher waiting for something to
-appear, and is left alone.
+appear, and is left alone — until `idle_timeout_ms` (15 minutes), because nothing in the
+engine can tell a patient watcher from one whose screen is covered by a popup it does
+not know. Both are timeouts you set, not something cleverer, and a guard stop records
+why in the status bar as well as the log.
 
 **It tells you a capture is bad while you can still fix it.** When you crop a
 template, it is checked before it is saved — against the same screen grab it came
@@ -132,12 +148,23 @@ python tools/match_report.py --title "Some Game"
 
 ## Packs
 
-A pack is a folder of macros plus the list of templates they need, exportable as a
-single `.wmbpack` file — how you share a working setup with someone else. Templates
-themselves are per-machine, so a pack ships the *spec* and the recipient captures
-their own; the Guided Capture wizard walks that list.
+A pack is a folder of macros plus the template images they match against, exportable as
+a single `.wmbpack` file — how you share a working setup with someone else. Import one
+and it runs without capturing anything first.
+
+The images are the part that may not travel. Measured on two clients of one game on one
+machine, differing only in their graphics settings: the second rendered about 35%
+softer, and that alone took a marker from **1.000** to **0.697**, below what the macro
+needs. Window *size* is fine — matching is scale-aware — rendering is not. So a pack
+also ships the *spec*: a list of what each template is and where to find it, which
+Guided Capture walks so you can re-cut any image that does not score on your client.
+
+A pack never ships `target_hwnd` or `target_position`. Those name a window on the
+machine that built it, and `target_position` is checked before anything else — it would
+silently aim your macro at whichever of *your* windows sits in that spot.
 
 `packs/onmyoji/` is the worked example the engine was developed against.
+[docs/PACKS.md](docs/PACKS.md) covers downloading, importing and verifying one.
 
 ## Layout
 
@@ -152,9 +179,12 @@ engine/
   pack_store.py        .wmbpack import / export
   template_check.py    judges a crop before it is saved
   match_report.py      scores every template against a live window
+  humanize.py          scatters delays and click points
+  paths.py             where user data lives, and seeding the bundled pack
 gui/                   tkinter app: macro list, editor, capture wizard, inspector
 tools/                 developer probes — see tools/README.md
 docs/SCHEMA.md         every macro field and action, with its real default
+docs/PACKS.md          downloading, importing and verifying a pack
 docs/                  backlog and PRDs
 CLAUDE.md              engine behaviour, and the measurements behind it
 ```
@@ -163,7 +193,7 @@ CLAUDE.md              engine behaviour, and the measurements behind it
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests/          # 227 tests
+python -m pytest tests/          # 371 tests
 python tools/import_check.py     # what CI also runs
 ```
 
