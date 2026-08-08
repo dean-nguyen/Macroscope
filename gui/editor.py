@@ -239,6 +239,7 @@ class MacroEditor(tk.Toplevel):
         self._action_rows: List[Dict] = []
         self._target_hwnd: Optional[int] = None  # exact hwnd from window picker
         self._target_class: Optional[str] = None  # its window class, which outlives it
+        self._target_position: Optional[int] = None  # where it sits, which outlives both
 
         # Macro meta vars
         self._name_var       = tk.StringVar()
@@ -850,7 +851,8 @@ class MacroEditor(tk.Toplevel):
     # untouched on save — see _collect_macro.
     _FORM_KEYS = frozenset({
         "name", "description", "trigger", "loop", "loop_delay_ms",
-        "background", "target_window", "target_hwnd", "target_class", "actions",
+        "background", "target_window", "target_hwnd", "target_class",
+        "target_position", "actions",
         "humanize", "stall_timeout_ms", "idle_timeout_ms",
     })
 
@@ -871,6 +873,7 @@ class MacroEditor(tk.Toplevel):
         self._target_var.set(macro.get("target_window", ""))
         self._target_hwnd = macro.get("target_hwnd", None)
         self._target_class = macro.get("target_class", None)
+        self._target_position = macro.get("target_position", None)
 
         humanize = macro.get("humanize", True)
         self._humanize_var.set(humanize is not False and humanize != 0)
@@ -942,6 +945,10 @@ class MacroEditor(tk.Toplevel):
             macro["target_hwnd"] = self._target_hwnd
         if self._target_class:
             macro["target_class"] = self._target_class
+        if self._target_position is not None:
+            macro["target_position"] = self._target_position
+        else:
+            macro.pop("target_position", None)
 
         macro["actions"] = self._collect_actions()
         return macro
@@ -1090,8 +1097,21 @@ class MacroEditor(tk.Toplevel):
         # The class outlives the handle: next session the hwnd is stale and the
         # title search takes over, and the class is what stops that search
         # picking something that merely mentions the app in its title.
-        from engine.background_input import window_class_of
+        from engine.background_input import (by_screen_position, find_all_windows,
+                                             window_class_of)
         self._target_class = window_class_of(hwnd) or None
+
+        # When several windows share this title — two clients of the same game —
+        # remember *which* by where it sits, not by its handle. The handle is gone
+        # after the game restarts and this macro would have to be re-pointed by hand
+        # every launch; the left-hand window is still the left-hand window.
+        self._target_position = None
+        siblings = by_screen_position(find_all_windows(title, self._target_class))
+        if len(siblings) > 1:
+            for index, (candidate, _t) in enumerate(siblings):
+                if candidate == hwnd:
+                    self._target_position = index
+                    break
         self._bg_var.set(True)
 
     # ── save / close ───────────────────────────────────────────────────────────

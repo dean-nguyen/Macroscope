@@ -757,6 +757,16 @@ class App(tk.Tk):
         )
 
     def _on_macro_done(self, name: str):
+        # One macro can be running on several windows, so this fires once per window.
+        # Flipping the button on the first of them showed a stopped macro that was
+        # still running — and pressing it then *stopped* the rest, because the button
+        # and the engine disagreed about what it meant.
+        still = self._engine.running_windows(name)
+        if still:
+            self._status(f"'{name}' finished on one window, "
+                         f"{len(still)} still running")
+            return
+
         self._update_toggle_btn(name, running=False)
         # A macro that stopped itself has something to say. Saying it only in the log
         # is not enough: the log collapses, and the whole point of a guard is that

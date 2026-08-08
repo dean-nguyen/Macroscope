@@ -97,6 +97,19 @@ def _stall_timeout_of(macro: Dict) -> int:
     return _timeout_field(macro, "stall_timeout_ms", DEFAULT_STALL_TIMEOUT_MS)
 
 
+def _position_index(value) -> Optional[int]:
+    """``target_position`` as an index, or None if it is not usable.
+
+    Coerced rather than trusted, and never guessed at: an unusable value must not
+    silently become "the first window", which is another account.
+    """
+    # Whole numbers only. int(1.5) is 1, which would quietly pick a window — and with
+    # one macro per account, the wrong window is the wrong account.
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
+
+
 def _where(hwnd: Optional[int]) -> str:
     """A short tag naming the window, so two runs of one macro do not produce two
     indistinguishable streams of log lines."""
@@ -700,26 +713,47 @@ class MacroEngine:
     def _resolve_hwnd(self, macro: Dict) -> Optional[int]:
         """Pin a concrete, valid hwnd for this macro run.
 
-        When ``target_hwnd`` is stale (from a previous session) or absent,
-        resolves via ``target_window``, preferring a window of ``target_class``
+        In order: ``target_position`` if the macro has one, then a still-live
+        ``target_hwnd``, then a title search preferring a window of ``target_class``
         and then the title that most closely *is* the target (see
         ``background_input.find_all_windows``).
 
-        Every candidate is logged with its class when there is more than one,
-        because a substring can match something that is not the application at
-        all — "Onmyoji" also matches a YouTube tab, and a macro that resolved to
-        it posted its clicks into the browser.
+        ``target_position`` comes first on purpose. It is the one pin that survives
+        restarting the game: a window handle does not, so a macro pinned to
+        ``target_hwnd`` has to be re-pointed by hand after every launch, which is the
+        cost of running one macro per account. Position also matches how someone
+        thinks about two clients tiled side by side — the left one and the right one.
+
+        Every candidate is logged with its class when there is more than one, because
+        a substring can match something that is not the application at all — "Onmyoji"
+        also matches a YouTube tab, and a macro that resolved to it posted its clicks
+        into the browser.
         """
         target      = macro.get("target_window", "").strip()
         target_hwnd = macro.get("target_hwnd", None)
         target_class = (macro.get("target_class") or "").strip() or None
+        position = macro.get("target_position", None)
 
         if not target and not target_hwnd:
             return None  # no window targeting
 
         try:
-            from engine.background_input import (find_all_windows, is_window_valid,
-                                                 window_class_of)
+            from engine.background_input import (by_screen_position, find_all_windows,
+                                                 is_window_valid, window_class_of)
+
+            if position is not None and target:
+                ordered = by_screen_position(find_all_windows(target, target_class))
+                index = _position_index(position)
+                if index is not None and 0 <= index < len(ordered):
+                    hwnd, title = ordered[index]
+                    self._log(f"[ctx] '{target}' position {index} of "
+                              f"{len(ordered)} → hwnd {hwnd} '{title}'")
+                    return hwnd
+                self._log(
+                    f"[ctx] '{target}' is pinned to window position {position}, but "
+                    f"only {len(ordered)} window(s) match — is the other client "
+                    f"open, and are they where they usually sit?")
+                return None
 
             # Saved hwnd still alive?
             if target_hwnd and is_window_valid(target_hwnd):
@@ -884,6 +918,15 @@ def _validate_safety_fields(macro: Dict) -> None:
             )
         if value < 0:
             raise ValueError(f"'{field}' cannot be negative; use 0 to disable")
+
+    if "target_position" in macro and macro["target_position"] is not None:
+        value = macro["target_position"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                f"'target_position' must be 0 or a positive whole number — the "
+                f"window's place among the matching ones, ordered left to right, "
+                f"got {value!r}"
+            )
 
     if "humanize" in macro:
         setting = macro["humanize"]

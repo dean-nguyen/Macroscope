@@ -43,6 +43,27 @@ def window_class_of(hwnd: int) -> str:
         return ""
 
 
+def by_screen_position(windows: List[Tuple[int, str]]) -> List[Tuple[int, str]]:
+    """The same windows, ordered left to right and then top to bottom.
+
+    This is what makes "the second instance" mean something across a restart. A
+    window handle does not survive one — the game gets a new one every launch, so a
+    macro pinned to `target_hwnd` has to be re-pointed by hand each time. Where the
+    window *sits* does survive, and it is also how someone thinks about two clients
+    tiled side by side: the left one and the right one.
+
+    Windows whose rectangle cannot be read sort last rather than dropping out.
+    """
+    def where(item):
+        try:
+            left, top, _r, _b = win32gui.GetWindowRect(item[0])
+            return (0, left, top)
+        except Exception:
+            return (1, 0, 0)
+
+    return sorted(windows, key=where)
+
+
 # Window classes that host content the user opened — a tab, a document, a folder —
 # rather than being an application whose name is its title.
 #

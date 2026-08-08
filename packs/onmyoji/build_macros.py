@@ -144,16 +144,27 @@ def after_attack(list_template):
     """
     tap = "onmyoji_reward_confirm.png"
     return [
-        wait(800),
-        # Polled often enough that the granularity is not itself a delay. Each poll
-        # costs ~110 ms of matching on a 1917x1080 window, so 750 ms is about a
-        # seventh of the time and saves an average second per battle over 2000 ms.
-        {"type": "image_wait", "template": f"templates/{tap}",
-         "threshold": TAP_THRESHOLD, "timeout_ms": 180000, "poll_ms": 750},
-        find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1500)]),
-        find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1000)]),
-        {"type": "image_wait", "template": f"templates/{list_template}",
-         "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 600},
+        # Long enough to have left the list screen if the attack took.
+        wait(2500),
+        # And if it did not, say so cheaply. A posted click can be swallowed — a panel
+        # still animating, a frame dropped — and then no battle starts and no result
+        # ever appears. Waiting that out cost **180 seconds per failed attack**,
+        # observed live with both game windows sitting idle on the target list. The
+        # marker is only on the list, so seeing it here means the attack did not take:
+        # do nothing, end the tick, and let the next one try again in one loop delay.
+        {"type": "image_check", "template": f"templates/{list_template}",
+         "threshold": 0.8,
+         "on_not_found": [
+             # Polled often enough that the granularity is not itself a delay. Each
+             # poll costs ~110 ms of matching on a 1917x1080 window, so 750 ms is
+             # about a seventh of the time.
+             {"type": "image_wait", "template": f"templates/{tap}",
+              "threshold": TAP_THRESHOLD, "timeout_ms": 120000, "poll_ms": 750},
+             find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1500)]),
+             find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1000)]),
+             {"type": "image_wait", "template": f"templates/{list_template}",
+              "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 600},
+         ]},
     ]
 
 
@@ -184,10 +195,19 @@ def try_cells(cells, exhausted, post_attack):
     tried and none of them offered an attack. A cell that is already defeated opens
     nothing, so the attack template simply does not appear and the chain moves on.
 
-    The settle after each click is an `image_wait` rather than a fixed `wait`, which
-    only ever helps: a live target resolves as soon as its panel is drawn instead of
-    always paying the full budget, and a dead one still costs the timeout. That budget
-    is what multiplies — nine dead cells were 13.5 s of a 21.5 s tick.
+    The settle after each click is an `image_wait` rather than a fixed `wait`, so a
+    live target resolves as soon as its panel is drawn instead of always paying the
+    full budget. That budget is what multiplies — nine dead cells were 13.5 s of a
+    21.5 s tick.
+
+    A live run then showed attacks that never started a battle, and a plausible
+    explanation was that `image_wait` returns the instant the button is *visible* —
+    possibly while its panel is still animating, so the click lands where the button
+    no longer is. That was **not** confirmed: the measurement meant to catch it saw
+    the panel not open at all, on a window another macro was driving at the same time.
+    So no settle is added here on the strength of a guess. What `after_attack` does
+    instead is notice quickly when an attack did not take, which is the right fix
+    whatever the cause.
     """
     chain = exhausted
     for x, y in reversed(cells):

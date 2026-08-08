@@ -371,6 +371,28 @@ window's own frames and works while it is occluded; the GDI screen-grab fallback
 photographs whatever is on top, so it is only trustworthy for the foreground window.
 See `tools/README.md` — that distinction has bitten twice.
 
+### Naming one client out of several
+
+Running one macro per account is the other way to drive two clients, and it needs each
+macro to say *which* window it means. A handle cannot: the game gets a new one every
+launch, so `target_hwnd` has to be re-pointed by hand after each restart.
+
+`target_position` is an index into the matching windows ordered **left to right, then
+top to bottom** (`background_input.by_screen_position`). Where a window sits survives a
+restart, and it is how someone thinks about two clients tiled side by side — which is
+also what the Window Arranger is for.
+
+- It is checked **before** `target_hwnd` in `_resolve_hwnd`, because a handle recorded
+  in another session can be recycled by an unrelated window.
+- A position that does not exist resolves to **no window**, with a line saying so. It
+  must not fall back to the first: with one macro per account, the wrong window is the
+  wrong account.
+- `_position_index` takes whole numbers only. `int(1.5)` is `1`, which would quietly
+  pick one.
+- The picker records it only when the title matches more than one window; with a unique
+  title there is nothing to disambiguate and a position would only go stale if the user
+  moved the window.
+
 ### One macro, several windows
 
 Two instances of a game side by side is the ordinary way this is used, and everything
