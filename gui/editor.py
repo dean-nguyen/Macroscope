@@ -121,6 +121,7 @@ _COLOR = {
     "image_check":    "#3a1a5c",
     "find_rects_and_click": "#2a4a2a",
     "find_all_and_click":   "#2a3a5c",
+    "stop":           "#5c1e1e",
 }
 
 _ICON = {
@@ -140,8 +141,12 @@ _ICON = {
     "image_check":    "🔍 image_check",
     "find_rects_and_click": "▢  find_rects",
     "find_all_and_click":   "🔎 find_all",
+    "stop":           "■  stop",
 }
 
+# Every action in _F must appear in exactly one row here, or the picker cannot offer
+# it and the only way to use it is to hand-edit the JSON. `stop` was missing for that
+# reason — a control the shipped pack depends on and a user could not reach.
 _GROUPS = [
     ("Mouse",    ["click", "right_click", "double_click", "move", "drag", "scroll"]),
     ("Keyboard", ["key", "type"]),
@@ -149,6 +154,7 @@ _GROUPS = [
     ("Branch",   ["pixel_check", "image_check"]),
     ("Image",    ["find_and_click", "find_all_and_click", "image_wait"]),
     ("Detect",   ["find_rects_and_click"]),
+    ("Control",  ["stop"]),
 ]
 
 

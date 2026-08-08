@@ -359,6 +359,6 @@ See `tools/README.md` — that distinction has bitten twice.
 4. If the action supports branching, add `on_match`/`on_found` etc. and register the branch keys in `_validate_actions()`.
 5. In `gui/editor.py`: add its fields to `_F`, **and** add it to a `_GROUPS` row or it
    will not appear in the action picker (`_ICON`/`_COLOR` are optional cosmetics that
-   fall back to the type name). `stop` is in `_F` but not in `_GROUPS`, which is why it
-   can only be added by editing JSON.
+   fall back to the type name). `tests/test_editor_actions.py` fails if you forget —
+   which is how `stop` was found unreachable after shipping in both pack macros.
 6. Document it in `docs/SCHEMA.md` — the reference for macro JSON.

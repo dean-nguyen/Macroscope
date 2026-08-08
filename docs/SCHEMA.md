@@ -140,14 +140,15 @@ middle-button drag is not available there.
 **`scroll`** — no required fields. Optional `x`/`y` or `xp`/`yp`, `amount`
 (default `3`). Positive scrolls up.
 
-> `amount` does not mean the same thing in the two modes. Background posts
-> `amount * WHEEL_DELTA`, so `3` is three wheel notches. Foreground hands `amount` to
-> `pyautogui.scroll`, which passes it to `mouse_event` as a raw delta, where one notch
-> is 120 — so `3` is 3/120 of a notch and most applications will do nothing with it. A
-> foreground scroll needs a value in the hundreds. Read from the code
-> (`background_input.post_scroll` and `pyautogui._pyautogui_win._scroll`), not measured
-> against a real application. Whether a *posted* wheel message scrolls at all is
-> application-dependent — see the open question in `docs/BACKLOG.md`.
+> `amount` is **wheel notches in both modes**. It used not to be: background posted
+> `amount * WHEEL_DELTA` while foreground handed `amount` straight to
+> `pyautogui.scroll`, which passes it to `mouse_event` as a raw delta where one notch
+> is 120 — so the same macro scrolled three notches in the background and asked for
+> 3/120 of a notch in the foreground, which is to say nothing at all, and `3` was the
+> editor's default. The runner multiplies for the foreground path now.
+>
+> Whether a *posted* wheel message scrolls a given application at all is a separate
+> question and still open — see `docs/BACKLOG.md`.
 
 ### Keyboard
 

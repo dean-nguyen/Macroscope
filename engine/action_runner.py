@@ -340,6 +340,14 @@ def _drag(a: Dict, ctx) -> None:
         )
 
 
+# One wheel notch, as Windows counts it. background_input already multiplies by this
+# for WM_MOUSEWHEEL; pyautogui does not — it hands `clicks` straight to mouse_event as
+# dwData, so pyautogui.scroll(3) asks for 3/120 of a notch and nothing moves. The same
+# macro therefore scrolled three notches in background mode and not at all in
+# foreground, and the editor's default of 3 was the value that did nothing.
+_WHEEL_NOTCH = 120
+
+
 def _scroll(a: Dict, ctx) -> None:
     _sent_input(ctx)
     rx, ry = _coords(a, ctx)
@@ -348,11 +356,14 @@ def _scroll(a: Dict, ctx) -> None:
     if _is_bg(ctx):
         bg.post_scroll(_hwnd(ctx), x, y, amount)
     else:
+        # `amount` means notches in both modes, so a macro written against one
+        # behaves the same in the other.
+        clicks = amount * _WHEEL_NOTCH
         ox, oy = _ox(ctx), _oy(ctx)
         if rx is not None:
-            pyautogui.scroll(amount, x=x + ox, y=y + oy)
+            pyautogui.scroll(clicks, x=x + ox, y=y + oy)
         else:
-            pyautogui.scroll(amount)
+            pyautogui.scroll(clicks)
 
 
 def _key(a: Dict, ctx) -> None:
