@@ -16,7 +16,7 @@ Layout:
 """
 
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import messagebox, filedialog, font as tkfont
 from datetime import datetime
 from typing import Optional
 
@@ -29,6 +29,73 @@ from gui.widgets import (Button, IconButton, Label, Frame, SectionLabel, Badge,
 from gui.editor import MacroEditor
 
 
+# A macro filed under "Onmyoji" and named "Onmyoji - Realm Raid (Guild)" says it twice,
+# and the copy in the name is the part every sibling shares. Stripped only when a
+# separator follows, so "Onmyojitsu" keeps its name.
+_NAME_SEPARATORS = (" - ", " — ", " – ", ": ", " / ", " | ")
+
+
+def _short_name(name: str, folder: str) -> str:
+    folder = (folder or "").strip()
+    if not folder or not name.lower().startswith(folder.lower()):
+        return name
+    rest = name[len(folder):]
+    for sep in _NAME_SEPARATORS:
+        if rest.startswith(sep):
+            return rest[len(sep):].strip() or name
+    return name
+
+
+def _window_label(macro: dict) -> str:
+    """Which window this macro drives — the only thing that differs between the
+    per-account duplicates of one pack macro."""
+    pos = macro.get("target_position")
+    if pos:
+        return f"window {pos}"
+    hwnd = macro.get("target_hwnd")
+    if hwnd:
+        return f"pinned #{hwnd}"
+    title = (macro.get("target_window") or "").strip()
+    return f"BG: {title[:20]}" if title else "Background"
+
+
+def _fit_text(font, text: str, width_px: int, tail_share: float = 0.6) -> str:
+    """Shorten `text` with an ellipsis until it fits `width_px`.
+
+    Weighted towards the *tail* by default, because the distinguishing part of a
+    macro name is at the end: four rows cut to "Onmyoji - Realm R…" are the same
+    four rows, while "…Raid (Individual) (2)" is not.
+    """
+    if width_px <= 0 or font.measure(text) <= width_px:
+        return text
+    for keep in range(len(text) - 1, 0, -1):
+        tail = min(keep, max(1, round(keep * tail_share))) if tail_share else 0
+        head = keep - tail
+        cand = text[:head] + "…" + (text[-tail:] if tail else "")
+        if font.measure(cand) <= width_px:
+            return cand
+    return "…"
+
+
+def _fitted_label(parent, text: str, tail_share: float = 0.6, **kw) -> tk.Label:
+    """A label that re-ellipsises itself to whatever width it is handed.
+
+    `width=1` matters: it stops the full text from setting the column's minimum, so
+    a long name can no longer squeeze the buttons — which is how a name wanting 429 px
+    ended up in a 267 px column, clipped mid-word with no ellipsis at all.
+    """
+    lbl = tk.Label(parent, text=text, anchor="w", width=1, **kw)
+    font = tkfont.Font(font=lbl.cget("font"))
+
+    def _refit(event):
+        shown = _fit_text(font, text, event.width, tail_share)
+        if shown != lbl.cget("text"):
+            lbl.config(text=shown)
+
+    lbl.bind("<Configure>", _refit)
+    return lbl
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -36,8 +103,12 @@ class App(tk.Tk):
         # makes pixel padding follow the same DPI Tk already uses for fonts.
         T.init_scaling(self)
         self.title("Macroscope")
-        self.geometry(f"{T.px(1060)}x{T.px(680)}")
-        self.minsize(T.px(760), T.px(500))
+        self._place_window(T.px(1060), T.px(680))
+        # Clamped for the same reason as the initial size: at 250% scaling the nominal
+        # 760x500 becomes 1902x1251, taller than a 1080p laptop's whole screen, and a
+        # minsize the display cannot satisfy is a window that can never be tidied.
+        self.minsize(min(T.px(760), self.winfo_screenwidth() - T.px(40)),
+                     min(T.px(500), self.winfo_screenheight() - T.px(80)))
         self.configure(bg=T.BG)
         self.resizable(True, True)
 
@@ -52,6 +123,20 @@ class App(tk.Tk):
         self._reload_macros()
         self._register_stop_hotkey()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _place_window(self, want_w: int, want_h: int):
+        """Open centred, and never larger than the display.
+
+        Without a position Tk lets Windows place the window, and at 250% scaling this
+        one is 2653 px wide — placed a little right of centre, the header's right edge
+        (the Stop-hotkey badge) hangs off the screen and reads as a clipped control.
+        Nothing in the layout is wrong there; the window simply is not all visible.
+        """
+        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
+        w = min(want_w, screen_w - T.px(40))
+        h = min(want_h, screen_h - T.px(80))
+        self.geometry(f"{w}x{h}+{max(0, (screen_w - w) // 2)}"
+                      f"+{max(0, (screen_h - h) // 3)}")
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -116,8 +201,9 @@ class App(tk.Tk):
         sidebar = tk.Frame(self, bg=T.BG2, width=T.px(T.SIDEBAR_W))
         sidebar.grid(row=1, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
-        sidebar.grid_rowconfigure(1, weight=1)
+        sidebar.grid_rowconfigure(2, weight=1)
         sidebar.grid_columnconfigure(0, weight=1)
+        self._sidebar = sidebar
 
         # Panel header
         ph = tk.Frame(sidebar, bg=T.BG2)
@@ -129,36 +215,28 @@ class App(tk.Tk):
         )
         self._count_badge.pack(side=tk.LEFT, padx=6)
 
-        # Extra buttons (Images, Arrange, Reload) — tucked right
-        btn_row = tk.Frame(ph, bg=T.BG2)
-        btn_row.pack(side=tk.RIGHT)
-        tk.Label(btn_row, text="Images", font=T.FONT_SMALL, bg=T.BG2,
-                 fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
-        btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_templates())
-        btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
-        btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
-        tk.Label(btn_row, text="Arrange", font=T.FONT_SMALL, bg=T.BG2,
-                 fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
-        btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._open_arranger())
-        btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
-        btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
-        tk.Label(btn_row, text="Reload", font=T.FONT_SMALL, bg=T.BG2,
-                 fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
-        btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._reload_macros())
-        btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
-        btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
-        tk.Label(btn_row, text="Import", font=T.FONT_SMALL, bg=T.BG2,
-                 fg=T.FG_DIM, cursor="hand2", padx=4).pack(side=tk.LEFT)
-        btn_row.winfo_children()[-1].bind("<Button-1>", lambda _: self._import_pack())
-        btn_row.winfo_children()[-1].bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
-        btn_row.winfo_children()[-1].bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
+        # Tools get their own row. Sharing the heading's row meant four labels, a
+        # title and a badge competing for the sidebar width, and at 250% display
+        # scaling the last of them ("Import") was left with 40 px of the 114 it needs.
+        tools = tk.Frame(sidebar, bg=T.BG2)
+        tools.grid(row=1, column=0, columnspan=2, sticky="ew", padx=T.PAD, pady=(0, 4))
+        for text, command in (("Images",  self._open_templates),
+                              ("Arrange", self._open_arranger),
+                              ("Reload",  self._reload_macros),
+                              ("Import",  self._import_pack)):
+            link = tk.Label(tools, text=text, font=T.FONT_SMALL, bg=T.BG2,
+                            fg=T.FG_DIM, cursor="hand2", padx=4)
+            link.pack(side=tk.LEFT, padx=(0, 6))
+            link.bind("<Button-1>", lambda _, c=command: c())
+            link.bind("<Enter>", lambda e: e.widget.config(fg=T.ACCENT))
+            link.bind("<Leave>", lambda e: e.widget.config(fg=T.FG_DIM))
 
         # Scrollable list
         canvas = tk.Canvas(sidebar, bg=T.BG2, highlightthickness=0, bd=0)
         vsb = Scrollbar(sidebar, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
-        canvas.grid(row=1, column=0, sticky="nsew")
-        vsb.grid(row=1, column=1, sticky="ns")
+        canvas.grid(row=2, column=0, sticky="nsew")
+        vsb.grid(row=2, column=1, sticky="ns")
 
         self._list_inner  = tk.Frame(canvas, bg=T.BG2)
         self._list_window = canvas.create_window((0, 0), window=self._list_inner, anchor="nw")
@@ -179,8 +257,22 @@ class App(tk.Tk):
 
         self._list_canvas = canvas
 
-        # Right border separator
-        tk.Frame(self, bg=T.SEP, width=T.px(1)).grid(row=1, column=0, sticky="nse")
+        # Right border — also the drag handle. The sidebar is fixed-width by
+        # construction (grid_propagate(False) is what stops the list from stretching
+        # it), so on a wide window a clipped macro name sat next to a screenful of
+        # empty log. A few pixels of grab area cost nothing and settle it per user.
+        grip = tk.Frame(self, bg=T.SEP, width=T.px(4), cursor="sb_h_double_arrow")
+        grip.grid(row=1, column=0, sticky="nse")
+
+        def _drag(event):
+            width = event.x_root - sidebar.winfo_rootx()
+            # 240 is where a row still reads: narrower and the ellipsis eats the name
+            # down to "…", which is worse than the clipping this replaced.
+            sidebar.config(width=max(T.px(240), min(width, self.winfo_width() - T.px(320))))
+
+        grip.bind("<B1-Motion>", _drag)
+        grip.bind("<Enter>", lambda _: grip.config(bg=T.ACCENT))
+        grip.bind("<Leave>", lambda _: grip.config(bg=T.SEP))
 
     # ── detail area (right side) ──────────────────────────────────────────────
 
@@ -244,12 +336,24 @@ class App(tk.Tk):
     def _toggle_log(self):
         self._log_visible = not self._log_visible
         if self._log_visible:
+            # The welcome card goes with it. It is a splash — a static list of three
+            # shortcuts — and sharing the height with the log meant that on a short
+            # window it was squeezed until its bottom row was cut off flush against
+            # the log's header bar, which reads as two panels overlapping.
+            self._welcome.grid_remove()
             self._log_frame.grid(row=1, column=0, sticky="nsew")
-            # Give log drawer some weight so it's visible
-            self._log_frame.master.grid_rowconfigure(1, weight=1, minsize=T.px(150))
+            detail = self._log_frame.master
+            # Row 0 keeps its weight while the welcome card is there. Leaving it set
+            # after removing the card left the log pinned below a band of empty
+            # background it should have filled.
+            detail.grid_rowconfigure(0, weight=0)
+            detail.grid_rowconfigure(1, weight=1, minsize=T.px(150))
         else:
             self._log_frame.grid_forget()
-            self._log_frame.master.grid_rowconfigure(1, weight=0, minsize=0)
+            detail = self._log_frame.master
+            detail.grid_rowconfigure(1, weight=0, minsize=0)
+            detail.grid_rowconfigure(0, weight=1)
+            self._welcome.grid()
 
     # ── status bar ────────────────────────────────────────────────────────────
 
@@ -408,25 +512,30 @@ class App(tk.Tk):
                        bg=T.BG3, fg=dot_color, padx=6)
         dot.grid(row=0, column=0, rowspan=2, sticky="w", padx=(6, 0))
 
-        # Name
-        tk.Label(
-            inner, text=name,
-            font=T.FONT, bg=T.BG3, fg=T.FG, anchor="w",
-        ).grid(row=0, column=1, sticky="w", padx=(4, 8), pady=(4, 0))
+        # Name. The folder heading directly above already says which game this is, so
+        # repeating it in every row spends the width on the one part that is the same
+        # in all of them — measured at 180 of the 429 px "Onmyoji - Realm Raid (Guild)"
+        # needs, in a column that only had 267.
+        _fitted_label(
+            inner, _short_name(name, macro.get("_folder", "")),
+            font=T.FONT, bg=T.BG3, fg=T.FG,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 8), pady=(4, 0))
 
-        # Subtitle (description or BG badge)
+        # Subtitle. Which window it drives comes first: with one macro per game
+        # client, two rows can be identical in every other respect, and the thing that
+        # tells them apart is the one thing this used to leave out — every row said
+        # "BG: Onmyoji".
         subtitle_parts = []
+        if is_bg:
+            subtitle_parts.append(_window_label(macro))
         if macro.get("description"):
             subtitle_parts.append(macro["description"][:40])
-        if is_bg:
-            tw = macro.get("target_window", "")
-            subtitle_parts.append(f"BG: {tw[:20]}" if tw else "Background")
-        subtitle = "  |  ".join(subtitle_parts) if subtitle_parts else ""
+        subtitle = "  ·  ".join(p for p in subtitle_parts if p)
         if subtitle:
-            tk.Label(
-                inner, text=subtitle,
-                font=T.FONT_SMALL, bg=T.BG3, fg=T.FG_DIM, anchor="w",
-            ).grid(row=1, column=1, sticky="w", padx=(4, 8), pady=(0, 4))
+            _fitted_label(
+                inner, subtitle, tail_share=0.0,
+                font=T.FONT_SMALL, bg=T.BG3, fg=T.FG_DIM,
+            ).grid(row=1, column=1, sticky="ew", padx=(4, 8), pady=(0, 4))
 
         # Hotkey badge (if assigned)
         trigger = macro.get("trigger", {})

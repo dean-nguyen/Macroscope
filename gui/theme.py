@@ -50,7 +50,7 @@ FONT_H2    = ("Segoe UI", 11, "bold")  # sub-headings
 PAD       = 14      # standard page-level padding
 PAD_SM    = 8       # tight inner padding (within cards)
 GAP       = 6       # gap between list items / cards
-SIDEBAR_W = 280     # sidebar width
+SIDEBAR_W = 330     # sidebar starting width (draggable — see the grip in app.py)
 
 
 # ── DPI scaling ───────────────────────────────────────────────────────────────
