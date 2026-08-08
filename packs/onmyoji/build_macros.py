@@ -117,24 +117,26 @@ def preamble(*limit_templates):
 def after_attack(list_template):
     """Hold the tick until the battle is over, then clear the result screens.
 
-    Three measured details, each of which replaced something that failed in a real run:
+    Wait for the **result** screen, not for the list. Waiting for the list deadlocked:
+    the post-battle victory screen is fullscreen with "Tap to continue" at the bottom,
+    the list is not behind it, and the only way to reach the list is to tap. The macro
+    sat inside image_wait for the full 180 s timeout waiting for a screen that its own
+    wait was preventing.
 
-    The fixed wait first. The game keeps the previous screen fully drawn while it fades
-    into the battle, so an image_wait on the list template returned 0.2 s after the
-    Attack click and the macro spent the next 15 s clicking grid coordinates onto a
-    battle screen. The PRD already recorded ~3 s of client latency for a button staying
-    drawn after being pressed; a screen change costs the same.
-
-    Then wait for the **result** screen, not for the list. Waiting for the list
-    deadlocked: the post-battle victory screen is fullscreen with "Tap to continue" at
-    the bottom, the list is not behind it, and the only way to reach the list is to tap.
-    The macro sat inside image_wait for the full 180 s timeout waiting for a screen that
-    its own wait was preventing.
+    That earlier version also opened with a 6 s settle, because an image_wait on the
+    *list* template returned 0.2 s after the Attack click — the game keeps the previous
+    screen drawn while it fades out. Waiting on the result instead makes that settle
+    pointless, and it was costing 6 s of every raid: scored against 14 frames of a real
+    run — the list, the attack panel, the battle, the transition — "Tap to continue"
+    reaches only **0.32-0.44**, against **0.938** on the one frame where the result
+    screen is genuinely up. There is nothing for a settle to protect. What remains is
+    long enough for the click to register.
 
     Then tap twice. Clearing the fullscreen result returns to the list, where a second
     reward overlay is drawn over it — that one *does* leave the Refresh button visible,
     which is what made the first reading of this look like the list had come back.
-    A third overlay, if there is one, is cleared by the next tick's own reward step.
+    A third overlay, if there is one, is cleared by the next tick's own reward step, so
+    a tap that goes too early costs one loop delay rather than the cycle.
 
     A defeat offers the same "Tap to continue" — observed on a real loss, where the
     "Failed" banner scored 0.997 and the tap line 0.776, so this chain clears a lost
@@ -142,13 +144,16 @@ def after_attack(list_template):
     """
     tap = "onmyoji_reward_confirm.png"
     return [
-        wait(6000),
+        wait(800),
+        # Polled often enough that the granularity is not itself a delay. Each poll
+        # costs ~110 ms of matching on a 1917x1080 window, so 750 ms is about a
+        # seventh of the time and saves an average second per battle over 2000 ms.
         {"type": "image_wait", "template": f"templates/{tap}",
-         "threshold": TAP_THRESHOLD, "timeout_ms": 180000, "poll_ms": 2000},
-        find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(2500)]),
+         "threshold": TAP_THRESHOLD, "timeout_ms": 180000, "poll_ms": 750},
         find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1500)]),
+        find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1000)]),
         {"type": "image_wait", "template": f"templates/{list_template}",
-         "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 1500},
+         "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 600},
     ]
 
 
@@ -178,12 +183,19 @@ def try_cells(cells, exhausted, post_attack):
     Built from the inside out, so `exhausted` runs only after every cell has been
     tried and none of them offered an attack. A cell that is already defeated opens
     nothing, so the attack template simply does not appear and the chain moves on.
+
+    The settle after each click is an `image_wait` rather than a fixed `wait`, which
+    only ever helps: a live target resolves as soon as its panel is drawn instead of
+    always paying the full budget, and a dead one still costs the timeout. That budget
+    is what multiplies — nine dead cells were 13.5 s of a 21.5 s tick.
     """
     chain = exhausted
     for x, y in reversed(cells):
         chain = [
             click(x, y),
-            wait(1500),
+            {"type": "image_wait",
+             "template": "templates/onmyoji_realmraid_attack.png",
+             "threshold": 0.8, "timeout_ms": 1500, "poll_ms": 200},
             find_click("onmyoji_realmraid_attack.png",
                        on_found=post_attack,
                        on_not_found=chain),
