@@ -248,6 +248,13 @@ class MacroEditor(tk.Toplevel):
         self._loop_delay_var = tk.StringVar(value="0")
         self._bg_var         = tk.BooleanVar()
         self._target_var     = tk.StringVar()
+        self._humanize_var   = tk.BooleanVar(value=True)
+        self._stall_var      = tk.StringVar()
+        self._idle_var       = tk.StringVar()
+        # Whatever `humanize` held when the macro was loaded, so tuning it by hand to
+        # {"click_px": 6} and then saving from here does not silently flatten it to
+        # `true`. The checkbox turns it off and back on; it does not redefine it.
+        self._humanize_detail = None
 
         self._build_ui()
         self._load_macro(macro or _default_macro())
@@ -346,6 +353,41 @@ class MacroEditor(tk.Toplevel):
                  insertbackground=T.FG, relief=tk.FLAT, font=T.FONT,
                  width=22).pack(side=tk.LEFT, padx=(0, 4), ipady=2)
         self._small_btn(r2, "Pick window", self._pick_window).pack(side=tk.LEFT)
+
+        self._build_safety_row(hdr, pad_x)
+
+    def _build_safety_row(self, hdr, pad_x):
+        """The two guards and the jitter, which were hand-edited JSON until now.
+
+        They are on by default and that is the point of them, so this row is about
+        seeing what they are set to and turning one off deliberately — not about
+        asking. A blank timeout means the default; 0 means off, and the labels say so
+        rather than making the user look it up.
+        """
+        row = tk.Frame(hdr, bg=T.BG2)
+        row.pack(fill=tk.X, padx=pad_x, pady=(0, 12))
+
+        tk.Checkbutton(row, text="Humanize", variable=self._humanize_var,
+                       bg=T.BG2, fg=T.FG, selectcolor=T.BG3,
+                       activebackground=T.BG2, activeforeground=T.FG,
+                       font=T.FONT, highlightthickness=0).pack(side=tk.LEFT)
+        tk.Label(row, text="scatter delays and clicks", font=T.FONT_SMALL,
+                 bg=T.BG2, fg=T.FG_XDIM).pack(side=tk.LEFT, padx=(4, 24))
+
+        for label, var, hint in (
+            ("stop if blind", self._stall_var, "ms clicking without recognising"),
+            ("stop if idle", self._idle_var, "ms doing nothing at all"),
+        ):
+            tk.Label(row, text=label, font=T.FONT_SMALL,
+                     bg=T.BG2, fg=T.FG_DIM).pack(side=tk.LEFT, padx=(0, 2))
+            tk.Entry(row, textvariable=var, bg=T.BG3, fg=T.FG,
+                     insertbackground=T.FG, relief=tk.FLAT, font=T.FONT,
+                     width=8).pack(side=tk.LEFT, ipady=2)
+            tk.Label(row, text=hint, font=T.FONT_SMALL,
+                     bg=T.BG2, fg=T.FG_XDIM).pack(side=tk.LEFT, padx=(4, 18))
+
+        tk.Label(row, text="blank = default, 0 = off", font=T.FONT_SMALL,
+                 bg=T.BG2, fg=T.FG_XDIM).pack(side=tk.LEFT)
 
     def _build_actions_panel(self, body):
         panel = tk.Frame(body, bg=T.BG)
@@ -809,6 +851,7 @@ class MacroEditor(tk.Toplevel):
     _FORM_KEYS = frozenset({
         "name", "description", "trigger", "loop", "loop_delay_ms",
         "background", "target_window", "target_hwnd", "target_class", "actions",
+        "humanize", "stall_timeout_ms", "idle_timeout_ms",
     })
 
     def _load_macro(self, macro: dict):
@@ -828,6 +871,15 @@ class MacroEditor(tk.Toplevel):
         self._target_var.set(macro.get("target_window", ""))
         self._target_hwnd = macro.get("target_hwnd", None)
         self._target_class = macro.get("target_class", None)
+
+        humanize = macro.get("humanize", True)
+        self._humanize_var.set(humanize is not False and humanize != 0)
+        self._humanize_detail = humanize if isinstance(humanize, dict) else None
+        # Blank means "not set", which is what the engine reads as the default. Only
+        # a value the macro actually carries is shown, so an untouched macro saves
+        # without gaining fields it never had.
+        self._stall_var.set(_ms_text(macro.get("stall_timeout_ms")))
+        self._idle_var.set(_ms_text(macro.get("idle_timeout_ms")))
 
         self._action_rows = []
         for action in macro.get("actions", []):
@@ -863,6 +915,24 @@ class MacroEditor(tk.Toplevel):
             macro["loop_delay_ms"] = int(self._loop_delay_var.get())
         except ValueError:
             macro["loop_delay_ms"] = 0
+
+        # Only written when they say something other than the default, so a macro
+        # that never set them does not acquire them by being opened and saved.
+        if self._humanize_var.get():
+            if self._humanize_detail is not None:
+                macro["humanize"] = self._humanize_detail
+            else:
+                macro.pop("humanize", None)
+        else:
+            macro["humanize"] = False
+
+        for field, var in (("stall_timeout_ms", self._stall_var),
+                           ("idle_timeout_ms", self._idle_var)):
+            value = _ms_value(var.get())
+            if value is None:
+                macro.pop(field, None)
+            else:
+                macro[field] = value
 
         macro["background"] = self._bg_var.get()
         tgt = self._target_var.get().strip()
@@ -1680,6 +1750,33 @@ class WindowPicker(tk.Toplevel):
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _ms_text(value) -> str:
+    """A timeout for the form. Blank when the macro does not set one, because blank
+    is what the engine reads as "use the default"."""
+    if value is None:
+        return ""
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _ms_value(text: str):
+    """A timeout from the form, or None to leave the field out of the macro.
+
+    Anything that is not a number is treated as blank rather than saved: the engine
+    validates these at load, and a macro that will not load is a worse outcome than
+    a field quietly reverting to its default.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return max(0, int(float(text)))
+    except ValueError:
+        return None
+
 
 def _default_macro() -> dict:
     return {

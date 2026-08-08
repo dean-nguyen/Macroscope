@@ -62,13 +62,18 @@ SIDEBAR_W = 280     # sidebar width
 # from raw pixel numbers stays at 100% while its text grows: text overflows,
 # panels clip mid-word, header buttons fall off the edge.
 #
-# The fix is to scale pixel distances by the same factor Tk uses for fonts.
-# There are ~450 numeric padx/pady arguments across the GUI, so rather than
-# annotate each one, init_scaling wraps the geometry managers — where padding is
-# always in pixels — and does it centrally. Sizes that are pixels in a widget
-# *option* (a Frame's width, a wraplength, a geometry string) are wrapped in
-# px() at the call site, because the same option name means characters or lines
-# on other widgets and must not be touched.
+# The fix is to scale pixel distances by the same factor Tk uses for fonts. There are
+# ~250 numeric padx/pady arguments across the GUI, so rather than annotate each one,
+# init_scaling patches tkinter.Misc._options — the one place a widget constructor, a
+# geometry-manager call and configure() all pass through — and scales padding there.
+#
+# It used to patch the three geometry managers instead, which covered
+# widget.pack(padx=10) and missed tk.Label(parent, padx=10): 41 constructor sites and
+# 2 configure() calls whose inner padding rendered at 1/SCALE of its intent.
+#
+# Other pixel sizes in a widget *option* (a Frame's width, a wraplength, a geometry
+# string) are still wrapped in px() at the call site, because the same option name
+# means characters or lines on other widgets and must not be touched.
 
 SCALE = 1.0
 
@@ -91,7 +96,7 @@ def init_scaling(root: tk.Misc) -> float:
     except Exception:
         SCALE = 1.0
     if SCALE != 1.0:
-        _scale_geometry_managers()
+        _scale_pixel_options()
     return SCALE
 
 
@@ -115,30 +120,38 @@ def _scale_pad(kw: dict) -> dict:
     return kw
 
 
-def _scale_geometry_managers() -> None:
-    """Patch pack/grid/place so their padding is in logical pixels."""
+def _scale_pixel_options() -> None:
+    """Patch ``tkinter.Misc._options`` so every pixel padding is in logical pixels.
+
+    One hook, because everything funnels through it — measured: a widget
+    constructor, a ``pack``/``grid``/``place`` call and ``configure()`` all reach
+    ``Misc._options`` on the way to Tcl.
+
+    This used to patch the three geometry managers instead, which covered
+    ``widget.pack(padx=10)`` and missed ``tk.Label(parent, padx=10)`` entirely —
+    43 sites across the GUI whose inner padding therefore rendered at 1/SCALE of
+    its intent on a scaled display. Patching here rather than annotating each site
+    with ``px()`` is the difference between one thing to get right and 43 things to
+    remember. **Patch only one of the two**: pack goes through ``_options`` too, so
+    keeping both would scale its padding twice.
+    """
     global _patched
     if _patched:
         return
     _patched = True
 
-    for cls, names in ((tk.Pack, ("pack", "pack_configure")),
-                       (tk.Grid, ("grid", "grid_configure")),
-                       (tk.Place, ("place", "place_configure"))):
-        original = getattr(cls, names[1])
+    original = tk.Misc._options
 
-        def make(func):
-            def wrapper(self, cnf={}, **kw):
-                if cnf:
-                    cnf = _scale_pad(dict(cnf))
-                return func(self, cnf, **_scale_pad(kw))
-            return wrapper
+    def wrapper(self, cnf, kw=None):
+        # cnf is not always a mapping: a query like configure('padx') passes a
+        # string, and _cnfmerge also accepts a sequence of dicts.
+        if isinstance(cnf, dict):
+            cnf = _scale_pad(dict(cnf))
+        if isinstance(kw, dict):
+            kw = _scale_pad(dict(kw))
+        return original(self, cnf, kw)
 
-        wrapped = make(original)
-        # `pack` and `pack_configure` are two names for one function, so both
-        # have to be replaced or callers of the alias keep the unscaled version.
-        for name in names:
-            setattr(cls, name, wrapped)
+    tk.Misc._options = wrapper
 
 
 _MONITOR_DEFAULTTONEAREST = 2

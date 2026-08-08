@@ -264,10 +264,17 @@ def cmd_list(args):
     print(f"\n{done}/{len(spec)} captured   ({TEMPLATES_DIR})")
 
 
-def main():
+def build_parser():
+    """The argument parser, separate from main so a test can check the README.
+
+    `--title` belongs to this parser and not to the subcommands, so it has to come
+    *before* the subcommand. The README documented it the other way round for months
+    and every line in it was rejected by argparse.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--title", default="Onmyoji",
-                        help="substring of the target window title (default: Onmyoji)")
+                        help="substring of the target window title "
+                             "(default: Onmyoji; must precede the subcommand)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("shot", help="capture the target window").set_defaults(fn=cmd_shot)
@@ -302,7 +309,11 @@ def main():
     p.add_argument("spec")
     p.set_defaults(fn=cmd_list)
 
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
     args.fn(args)
 
 

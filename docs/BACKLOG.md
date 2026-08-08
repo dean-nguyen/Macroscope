@@ -34,7 +34,7 @@ whether the project is useful to anyone else, and everything a user touches live
 | E1.10 | The editor silently dropped `humanize` and `stall_timeout_ms` | done | `_collect_macro` built the dict from scratch, so any macro-level key the form does not show was deleted on save. It now carries through everything outside `_FORM_KEYS`. Giving the two fields their own controls is E1.13 |
 | E1.11 | `stop` is unreachable from the action picker | done | It was in `_F` and in no `_GROUPS` row, so it never rendered — a control both pack macros depend on and a user could not add without editing JSON, in a tool whose claim is that you do not have to. `tests/test_editor_actions.py` now asserts every editable action is offered exactly once, so the whole class of defect is guarded rather than this one instance |
 | E1.12 | `scroll` `amount` means different things in the two modes | done | Confirmed in `pyautogui._pyautogui_win._scroll`: it passes `clicks` to `mouse_event` as `dwData` unscaled, and Windows counts 120 per notch — so foreground `3` asked for 3/120 of a notch while background posted three real ones, and `3` was the editor's default. The runner multiplies for the foreground path; `amount` is notches everywhere now |
-| E1.13 | Controls for `humanize` and `stall_timeout_ms` in the editor | todo | They round-trip now (E1.10) but are still hand-edited. Worth a row in the form once the wording is settled |
+| E1.13 | Controls for `humanize` and the timeouts in the editor | done | A Safety row in the macro header: a Humanize checkbox and boxes for `stall_timeout_ms` and `idle_timeout_ms`, labelled "blank = default, 0 = off" so nobody has to look that up. The risk moved from *dropping* these fields (E1.10) to *inventing* them, so the tests pin the other direction: an untouched macro gains none of them on save, and a hand-tuned `{"click_px": 6}` is not flattened to `true` by toggling the checkbox |
 | E1.14 | `target_window` picked the wrong window | done | `"Onmyoji"` also matched a YouTube tab and a macro posted a click into the browser. Candidates are ranked now, and the picker records `target_class` because the class outlives the handle. Covered by `tests/test_window_resolution.py` |
 
 ## E2 — Behave safely by default
@@ -62,8 +62,8 @@ For an open-source repository the README is the product.
 | E3.2 | Rewrite `README.md` around the engine | done | Leads with what it does, then the five things a naive image-matching tool gets wrong, the first four tied to a measurement |
 | E3.3 | Survive a high-DPI display | done | 6 screens verified by capture at 250% |
 | E3.4 | Window Arranger tiles correctly across monitors | done | 8 defects incl. per-monitor DPI and size-locked windows |
-| E3.5 | Scale widget-option `padx`/`pady` (~41 sites) | todo | Inner padding renders at ~1/2.5 of intent. Cosmetic, no clipping |
-| E3.6 | Fix `tools/README.md` — `--title` must precede the subcommand | todo | The documented example does not run |
+| E3.5 | Scale widget-option `padx`/`pady` | done | 41 constructor sites and 2 `configure()` calls, counted by AST rather than trusted from the old note. Fixed in **one place**: everything — a widget constructor, a `pack`/`grid`/`place` call, `configure()` — funnels through `tkinter.Misc._options`, measured, so the patch moved there from the three geometry managers. Patching both would have doubled every `pack` padding, which the tests now check |
+| E3.6 | Fix `tools/README.md` — `--title` must precede the subcommand | done | Confirmed the documented line was rejected by argparse before fixing it. `tests/test_tools_readme.py` parses every command in that README through the tool's own parser, so it cannot drift again — nobody runs a README |
 
 ## E4 — Know when something breaks
 

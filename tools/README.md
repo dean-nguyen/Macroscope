@@ -15,13 +15,16 @@ Output goes to `.probe/` at the repo root (git-ignored).
 
 ## Quick start
 
+`--title` belongs to `game_probe.py` itself, not to its subcommands, so it goes
+**before** the subcommand. Put it after and argparse rejects the line.
+
 ```bash
 python tools/import_check.py                                    # what CI runs
-python tools/game_probe.py shot --title Onmyoji                 # -> .probe/frame.png
-python tools/game_probe.py peek 2240 1300 420 130 --scale 2     # check a box
-python tools/game_probe.py crop onmyoji_battle_ready.png 2240 1300 420 130
+python tools/game_probe.py --title Onmyoji shot                 # -> .probe/frame.png
+python tools/game_probe.py --title Onmyoji peek 2240 1300 420 130 --scale 2
+python tools/game_probe.py --title Onmyoji crop onmyoji_battle_ready.png 2240 1300 420 130
 python tools/game_probe.py list packs/onmyoji/templates.spec.json
-python tools/match_report.py --title Onmyoji
+python tools/match_report.py --title Onmyoji                    # --title is its own here
 python tools/ui_probe.py app editor wizard
 ```
 
