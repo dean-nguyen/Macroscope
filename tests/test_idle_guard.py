@@ -152,7 +152,7 @@ def test_a_guard_stop_does_not_cancel_a_folder_run(monkeypatch):
     monkeypatch.setattr(ar.im, "find_template", lambda *a, **k: None)
     engine = MacroEngine(log_fn=lambda m: None)
     _run(engine, _gated(idle_timeout_ms=60, stall_timeout_ms=0))
-    assert "m" in engine._stalled
+    assert ("m", None) in engine._stalled
 
 
 # ── unusable values must not kill a running macro ─────────────────────────────

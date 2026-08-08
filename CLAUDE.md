@@ -371,6 +371,33 @@ window's own frames and works while it is occluded; the GDI screen-grab fallback
 photographs whatever is on top, so it is only trustworthy for the foreground window.
 See `tools/README.md` — that distinction has bitten twice.
 
+### One macro, several windows
+
+Two instances of a game side by side is the ordinary way this is used, and everything
+about a run used to be keyed by macro *name* — so a second `run()` was refused and the
+second instance simply never started, without anything saying so. The only way to
+express it was a copy of the macro file per window.
+
+- A run is keyed by **`(name, hwnd)`**. `run(name)` resolves its own window as before
+  and is one run; `run(name, hwnd=…)` pins a window and gets its own slot.
+  `run_on_windows` starts one per window.
+- `is_running(name)` is true if *any* run is alive and `stop(name)` stops *all* of
+  them, because the button says Stop.
+- **The guards are per run**, not per macro: with one macro on two accounts, one
+  losing its screen says nothing about the other. `_stalled` and `_stop_reasons` are
+  keyed the same way.
+- Log lines carry a `[window <hwnd>]` tag, or two runs produce two indistinguishable
+  streams.
+- `matching_windows(name)` is what lets the app *offer* the choice — the macro's
+  targeting matches N windows and the macro cannot say which it meant, so `gui/app.py`
+  asks rather than silently taking the first.
+
+What two concurrent runs share is deliberate: the scale cache is keyed by template and
+haystack size, so two same-size instances share their discovery and one run's search
+helps the other. They do contend for the same discovery ration slot, which the
+stalest-wins rule shares out fairly. Frame scope is `threading.local`, so each run
+captures its own frame, and WGC sessions are per hwnd.
+
 ### Thread safety
 
 - `MacroEngine._lock` guards `_macros`, `_running`, `_stop_flags`.

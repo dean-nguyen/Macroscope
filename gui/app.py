@@ -724,14 +724,37 @@ class App(tk.Tk):
             self._log(f"Stopped '{name}'", tag="warn")
             self._status(f"Stopped '{name}'")
             self._update_toggle_btn(name, running=False)
+            return
+
+        done = lambda n: self.after(0, lambda: self._on_macro_done(n))  # noqa: E731
+        windows = self._engine.matching_windows(name)
+
+        # Two instances of a game are one window pattern and two windows, and the
+        # macro cannot say which it meant. Asking is better than silently taking the
+        # first: without this the second instance simply never ran, and nothing said
+        # so.
+        if len(windows) > 1 and self._ask_run_on_all(name, windows):
+            started = self._engine.run_on_windows(name, [h for h, _ in windows],
+                                                  on_done=done)
+            self._log(f"Running '{name}' on {len(started)} windows", tag="ok")
+            self._status(f"Running '{name}' on {len(started)} windows")
         else:
             self._log(f"Running '{name}'", tag="ok")
             self._status(f"Running '{name}'")
-            self._engine.run(
-                name,
-                on_done=lambda n: self.after(0, lambda: self._on_macro_done(n)),
-            )
-            self._update_toggle_btn(name, running=True)
+            self._engine.run(name, on_done=done)
+        self._update_toggle_btn(name, running=True)
+
+    def _ask_run_on_all(self, name: str, windows) -> bool:
+        titles = "\n".join(f"    {title}" for _hwnd, title in windows[:6])
+        return messagebox.askyesno(
+            "Several windows match",
+            f"'{name}' targets a window title that {len(windows)} open windows "
+            f"match:\n\n{titles}\n\n"
+            f"Run it on all {len(windows)}?\n\n"
+            f"Yes — one run per window, side by side.\n"
+            f"No  — just the first one, as before.",
+            parent=self,
+        )
 
     def _on_macro_done(self, name: str):
         self._update_toggle_btn(name, running=False)

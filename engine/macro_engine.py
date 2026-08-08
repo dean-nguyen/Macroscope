@@ -97,6 +97,12 @@ def _stall_timeout_of(macro: Dict) -> int:
     return _timeout_field(macro, "stall_timeout_ms", DEFAULT_STALL_TIMEOUT_MS)
 
 
+def _where(hwnd: Optional[int]) -> str:
+    """A short tag naming the window, so two runs of one macro do not produce two
+    indistinguishable streams of log lines."""
+    return "" if hwnd is None else f" [window {hwnd}]"
+
+
 def _clean_folder(folder: str) -> str:
     """Normalize a folder path: strip slashes, forward-slash separator, no '..'."""
     if not folder:
@@ -333,45 +339,95 @@ class MacroEngine:
             return self._macros.get(name)
 
     def is_running(self, name: str) -> bool:
+        """Whether *any* run of this macro is alive — one per window is normal."""
         with self._lock:
-            t = self._running.get(name)
-            return t is not None and t.is_alive()
+            return any(t is not None and t.is_alive()
+                       for key, t in self._running.items() if key[0] == name)
+
+    def running_windows(self, name: str) -> List[Optional[int]]:
+        """The windows this macro is currently running against."""
+        with self._lock:
+            return sorted((key[1] for key, t in self._running.items()
+                           if key[0] == name and t is not None and t.is_alive()),
+                          key=lambda h: (h is None, h))
+
+    def matching_windows(self, name: str) -> List[tuple]:
+        """Every window this macro's targeting matches, best first.
+
+        What lets a caller offer "run on all of them": two instances of the same game
+        are one window pattern and two windows, and the macro itself cannot say that.
+        """
+        macro = self.get_macro(name)
+        if macro is None:
+            return []
+        target = (macro.get("target_window") or "").strip()
+        if not target:
+            return []
+        try:
+            from engine.background_input import find_all_windows
+            return find_all_windows(target, (macro.get("target_class") or "") or None)
+        except Exception:
+            return []
 
     # ── execution ─────────────────────────────────────────────────────────────
 
-    def run(self, name: str, on_done: Optional[Callable] = None) -> bool:
-        """Start a macro in a background thread. Returns False if already running."""
+    def run(self, name: str, on_done: Optional[Callable] = None,
+            hwnd: Optional[int] = None) -> bool:
+        """Start a macro in a background thread. Returns False if already running.
+
+        *hwnd* pins the run to one window and gives it its own slot, so the same
+        macro can drive several instances of a game at once — two accounts side by
+        side is the ordinary case, and expressing it by duplicating the macro file
+        per window is exactly the copy-per-thing this pack has been getting rid of.
+
+        Without *hwnd* the macro resolves its own window as before, and there is one
+        such run at a time.
+        """
         macro = self.get_macro(name)
         if macro is None:
             self._log(f"[run] macro '{name}' not found")
             return False
-        if self.is_running(name):
-            self._log(f"[run] macro '{name}' already running")
+
+        key = (name, hwnd)
+        with self._lock:
+            existing = self._running.get(key)
+            already = existing is not None and existing.is_alive()
+        if already:
+            self._log(f"[run] macro '{name}'{_where(hwnd)} already running")
             return False
+
+        if hwnd is not None:
+            macro = dict(macro, target_hwnd=hwnd)
 
         stop_event = threading.Event()
         with self._lock:
-            self._stop_flags[name] = stop_event
-            self._stalled.discard(name)
-            self._stop_reasons.pop(name, None)
+            self._stop_flags[key] = stop_event
+            self._stalled.discard(key)
+            self._stop_reasons.pop(key, None)
 
         def worker():
             try:
-                self._execute(macro, stop_event)
-                self._log(f"[done] {name}")
+                self._execute(macro, stop_event, key=key)
+                self._log(f"[done] {name}{_where(hwnd)}")
             except Exception as exc:
-                self._log(f"[error] {name}: {exc}")
+                self._log(f"[error] {name}{_where(hwnd)}: {exc}")
             finally:
                 with self._lock:
-                    self._running.pop(name, None)
+                    self._running.pop(key, None)
                 if on_done:
                     on_done(name)
 
-        t = threading.Thread(target=worker, daemon=True, name=f"macro-{name}")
+        t = threading.Thread(target=worker, daemon=True,
+                             name=f"macro-{name}{_where(hwnd)}")
         with self._lock:
-            self._running[name] = t
+            self._running[key] = t
         t.start()
         return True
+
+    def run_on_windows(self, name: str, hwnds: List[int],
+                       on_done: Optional[Callable] = None) -> List[int]:
+        """Run *name* against each window. Returns the ones actually started."""
+        return [h for h in hwnds if self.run(name, on_done=on_done, hwnd=h)]
 
     def run_folder(
         self,
@@ -396,7 +452,7 @@ class MacroEngine:
                 name for name, m in self._macros.items()
                 if m.get("_folder", "") == folder
             )
-            running = {n for n, t in self._running.items()
+            running = {key[0] for key, t in self._running.items()
                        if t is not None and t.is_alive()}
         names = [n for n in names if n not in running]
         if not names:
@@ -436,20 +492,21 @@ class MacroEngine:
                     if self.is_running(name):
                         continue
 
+                    key = (name, None)
                     per_stop = threading.Event()
                     with self._lock:
-                        self._stop_flags[name] = per_stop
-                        self._running[name] = threading.current_thread()
-                        self._stalled.discard(name)
-                        self._stop_reasons.pop(name, None)
+                        self._stop_flags[key] = per_stop
+                        self._running[key] = threading.current_thread()
+                        self._stalled.discard(key)
+                        self._stop_reasons.pop(key, None)
                     try:
-                        self._execute(macro, per_stop)
+                        self._execute(macro, per_stop, key=key)
                         self._log(f"[done] {name}")
                     except Exception as exc:
                         self._log(f"[error] {name}: {exc}")
                     finally:
                         with self._lock:
-                            self._running.pop(name, None)
+                            self._running.pop(key, None)
                         if on_each_done:
                             on_each_done(name)
                         # If the user hit Stop on this macro, stop the whole chain —
@@ -457,7 +514,7 @@ class MacroEngine:
                         # losing track of its screen is no reason to cancel the
                         # rest of someone's dailies.
                         with self._lock:
-                            stalled = name in self._stalled
+                            stalled = key in self._stalled
                         if per_stop.is_set() and not stalled:
                             seq_stop.set()
             finally:
@@ -470,17 +527,17 @@ class MacroEngine:
         return names
 
     def stop(self, name: str) -> None:
-        """Signal a running macro to stop."""
+        """Signal every run of this macro to stop — one per window is normal."""
         with self._lock:
-            ev = self._stop_flags.get(name)
-        if ev:
+            events = [ev for key, ev in self._stop_flags.items() if key[0] == name]
+        for ev in events:
             ev.set()
 
     def stop_all(self) -> None:
         with self._lock:
-            names = list(self._stop_flags.keys())
-        for name in names:
-            self.stop(name)
+            events = list(self._stop_flags.values())
+        for ev in events:
+            ev.set()
         # Release any WGC capture sessions held for background-mode image search.
         try:
             from engine import wgc_capture
@@ -490,7 +547,7 @@ class MacroEngine:
 
     # ── internal execution ────────────────────────────────────────────────────
 
-    def _execute(self, macro: Dict, stop: threading.Event) -> None:
+    def _execute(self, macro: Dict, stop: threading.Event, key=None) -> None:
         loop = macro.get("loop", False)
         loop_delay_ms = macro.get("loop_delay_ms", 0)
         jitter = humanize.from_macro(macro)
@@ -554,7 +611,8 @@ class MacroEngine:
                 if guarded and acted_blind:
                     blind_ms = (now - last_recognised) * 1000
                     if blind_ms >= stall_ms:
-                        self._guard_stop(macro["name"], stop, "stalled", (
+                        self._guard_stop(key or (macro["name"], None), stop,
+                                         "stalled", (
                             f"it has been sending input for {blind_ms / 1000:.0f}s "
                             f"without recognising anything it looks for. The window "
                             f"is probably showing something unexpected — a prompt, a "
@@ -565,7 +623,8 @@ class MacroEngine:
                 if idle_ms_limit > 0:
                     quiet_ms = (now - last_did_something) * 1000
                     if quiet_ms >= idle_ms_limit:
-                        self._guard_stop(macro["name"], stop, "idle", (
+                        self._guard_stop(key or (macro["name"], None), stop,
+                                         "idle", (
                             f"it has neither recognised anything nor sent any input "
                             f"for {quiet_ms / 1000:.0f}s. Nothing is going wrong — it "
                             f"is simply not doing anything, which usually means the "
@@ -579,24 +638,33 @@ class MacroEngine:
         else:
             _run_once()
 
-    def _guard_stop(self, name: str, stop: threading.Event, kind: str,
-                    why: str) -> None:
-        """Stop a macro because a safety guard decided to, and record why.
+    def _guard_stop(self, key, stop: threading.Event, kind: str, why: str) -> None:
+        """Stop one run because a safety guard decided to, and record why.
+
+        Per run, not per macro: with the same macro driving two game windows, one
+        losing its screen says nothing about the other.
 
         The reason is kept so the app can tell the user what happened rather than
         leaving a stopped macro and a log line they may never expand — and so a
         sequential folder run can tell a guard stop from the user pressing Stop.
         """
-        self._log(f"[{kind}] {name}: {why}")
+        self._log(f"[{kind}] {key[0]}{_where(key[1])}: {why}")
         with self._lock:
-            self._stalled.add(name)
-            self._stop_reasons[name] = why
+            self._stalled.add(key)
+            self._stop_reasons[key] = why
         stop.set()
 
     def stopped_reason(self, name: str) -> Optional[str]:
-        """Why a guard stopped *name*, or None if it ended for any other reason."""
+        """Why a guard stopped this macro, or None if it ended for another reason.
+
+        Any run's reason will do: two runs of one macro stopping for different
+        reasons is possible but not worth a second sentence in a status bar.
+        """
         with self._lock:
-            return self._stop_reasons.get(name)
+            for key, why in self._stop_reasons.items():
+                if key[0] == name:
+                    return why
+        return None
 
     def _warn_missing_templates(self, macro: Dict) -> None:
         """Report, once per run, which templates this macro needs but that have

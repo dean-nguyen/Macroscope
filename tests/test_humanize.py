@@ -355,7 +355,8 @@ def test_stall_guard_stops_a_macro_clicking_at_a_screen_it_cannot_read(monkeypat
     assert not run.alive, "the stall guard did not stop the loop"
     assert run.stopped
     assert any("stalled" in m for m in logged), logged
-    assert "m" in engine._stalled, "a stall must be distinguishable from a user stop"
+    assert ("m", None) in engine._stalled, \
+        "a stall must be distinguishable from a user stop"
 
 
 def test_a_watcher_that_clicks_nothing_is_left_alone(monkeypatch):
