@@ -20,7 +20,9 @@ from gui.app import App
 def main():
     ensure_dirs()
     migrate_legacy_data()
-    seed_starter_macros()   # first-run: bundle the Onmyoji starter macros
+    # Adds pack macros the user has never been offered, and updates ones they have
+    # not edited. A macro they changed is left alone and reported.
+    seed_starter_macros()
     app = App()
     app.mainloop()
 

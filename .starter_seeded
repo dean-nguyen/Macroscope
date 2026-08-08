@@ -1,6 +1,6 @@
 {
-  "offered": [
-    "Onmyoji - Realm Raid (Guild)",
-    "Onmyoji - Realm Raid (Individual)"
-  ]
+  "seeded": {
+    "Onmyoji - Realm Raid (Guild)": "733bfabd1b966da679ad24c0f11659689beeecb02a61379f9fd820fc58f96a92",
+    "Onmyoji - Realm Raid (Individual)": "177a34907d7d5b509f91e46abc55d35ab4eba6d42c209a06be2fee75e46e1cb8"
+  }
 }

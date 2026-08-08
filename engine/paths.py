@@ -10,6 +10,7 @@ bundled read-only resources.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -97,74 +98,125 @@ def migrate_legacy_data() -> None:
         _migrate_dir(legacy_root / "templates", TEMPLATES_DIR)
 
 
-def seed_starter_macros(pack: str = "onmyoji") -> None:
-    """Copy any bundled macro for *pack* the user has not been offered before into
-    their library, so a fresh install has something to run and an existing one picks
-    up macros added since (templates are still captured via Guided Capture).
+def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> None:
+    """Keep the user's library in step with the bundled pack, without ever losing
+    work they did themselves.
 
-    Two things this used to get wrong.
+    Three things this has got wrong in turn, each of which made shipped work
+    invisible:
 
     It ran only in a packaged build (``sys.frozen``), so anyone running from source —
     which is how this project is installed — saw an empty macro list and no sign that
     a pack existed at all.
 
-    And its marker was a single flag, so it seeded once and never again: a macro added
-    to the pack afterwards never reached anyone who had already launched the app. The
-    marker now records *which* macro names have been offered, so a new one arrives on
-    the next launch while one the user deleted stays deleted.
+    Its marker was a single flag, so it seeded once and never again: a macro added to
+    the pack afterwards never reached anyone who had already launched the app.
+
+    And it never *updated* anything. A macro seeded once stayed at that version
+    forever, so a fix to a shipped macro reached new installs only — measured on this
+    machine, where the installed Realm Raid macros were several fixes behind the pack
+    while the user was running them.
+
+    So the marker records a hash of exactly what was written. A file still matching
+    its hash is one the user has not touched, and gets the update. A file that differs
+    is theirs, and is left alone with a line in the log saying the pack has moved on —
+    guessing which side to keep is not seeding's business.
     """
+    say = log_fn or (lambda msg: log.info("%s", msg))
     marker = data_root() / ".starter_seeded"
-    offered = _read_offered(marker)
+    seeded = _read_seeded(marker)
 
     folder_name = pack.capitalize()
-    copied = _seed_macros(PACKS_DIR / pack, MACROS_DIR / folder_name, skip=offered)
-    names = _pack_macro_names(PACKS_DIR / pack)
+    dest_dir = MACROS_DIR / folder_name
+    added, updated, diverged = _sync_macros(PACKS_DIR / pack, dest_dir, seeded)
+
     try:
-        marker.write_text(json.dumps({"offered": sorted(offered | names)}, indent=2),
+        marker.write_text(json.dumps({"seeded": seeded}, indent=2, sort_keys=True),
                           encoding="utf-8")
     except OSError:
         pass
-    if copied:
-        log.info("Seeded %d starter macro(s) into %s", copied, folder_name)
+
+    if added:
+        say(f"Added {len(added)} macro(s) from the {folder_name} pack: "
+            f"{', '.join(added)}")
+    if updated:
+        say(f"Updated {len(updated)} macro(s) to the current {folder_name} pack: "
+            f"{', '.join(updated)}")
+    for name in diverged:
+        say(f"'{name}' differs from the {folder_name} pack, so it was left as it is. "
+            f"Delete it to take the pack's version.")
 
 
-def _read_offered(marker: Path) -> set:
-    """Macro names already offered to this user.
+def _sync_macros(src_dir: Path, dest_dir: Path, seeded: dict):
+    """Add, update or leave each pack macro. Mutates *seeded* with what was written."""
+    added, updated, diverged = [], [], []
+    if not src_dir.is_dir():
+        return added, updated, diverged
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    A marker from the old format holds ``1`` and says nothing about *what* was seeded.
-    Reading that as "nothing recorded" means such a user is offered the current pack
-    once — which only ever adds macros they do not have, since an existing file is
-    never overwritten. That is the point: it is how an install from before a macro
-    existed finally receives it.
+    for path in sorted(src_dir.glob("*.macro.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            log.warning("Could not read starter macro %s", path)
+            continue
+        name = data.get("name")
+        if not name:
+            continue
+
+        text = json.dumps(data, indent=2)
+        digest = _digest(text)
+        target = dest_dir / f"{name}.json"
+        known = seeded.get(name)
+
+        if not target.exists():
+            # Never offered, or the user deleted it. Only the first is ours to fix.
+            if known is not None:
+                continue
+            target.write_text(text, encoding="utf-8")
+            seeded[name] = digest
+            added.append(name)
+            continue
+
+        try:
+            current = _digest(target.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if current == digest:
+            seeded[name] = digest        # already current; just record it
+        elif known is not None and current == known:
+            target.write_text(text, encoding="utf-8")   # untouched since we wrote it
+            seeded[name] = digest
+            updated.append(name)
+        else:
+            diverged.append(name)
+    return added, updated, diverged
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _read_seeded(marker: Path) -> dict:
+    """What was written for each macro name, as ``{name: digest}``.
+
+    Two older formats read as "nothing recorded": a bare ``1``, and a list of names
+    with no hashes. Both mean the same thing — we cannot tell an untouched file from
+    an edited one, so such a file is left alone and reported rather than overwritten.
     """
     try:
         data = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return set()
-    if isinstance(data, dict) and isinstance(data.get("offered"), list):
-        return {str(n) for n in data["offered"]}
-    return set()
-
-
-def _pack_macro_names(src_dir: Path) -> set:
-    names = set()
-    if not src_dir.is_dir():
-        return names
-    for path in sorted(src_dir.glob("*.macro.json")):
-        try:
-            name = json.loads(path.read_text(encoding="utf-8")).get("name")
-        except (OSError, ValueError):
-            continue
-        if name:
-            names.add(str(name))
-    return names
+        return {}
+    if isinstance(data, dict) and isinstance(data.get("seeded"), dict):
+        return {str(k): str(v) for k, v in data["seeded"].items()}
+    return {}
 
 
 def _seed_macros(src_dir: Path, dest_dir: Path, skip: Optional[set] = None) -> int:
-    """Copy each ``*.macro.json`` in *src_dir* into *dest_dir* as
-    ``<macro name>.json`` (matching how the app saves macros). Names in *skip* have
-    been offered before and are left alone even if the user deleted them; existing
-    files are never overwritten. Returns the number copied."""
+    """Copy each ``*.macro.json`` in *src_dir* into *dest_dir* as ``<name>.json``,
+    never overwriting. Kept for `tests/test_seed_macros.py`, which counts what a pack
+    ships; `_sync_macros` is what the app runs."""
     if not src_dir.is_dir():
         return 0
     skip = skip or set()
