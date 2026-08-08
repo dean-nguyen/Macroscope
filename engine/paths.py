@@ -28,9 +28,28 @@ APP_NAME = "Macroscope"
 _LEGACY_APP_NAMES = ("WindowMacroBotData",)
 
 
+def is_packaged() -> bool:
+    """True when running from a built binary rather than from source.
+
+    ``sys.frozen`` is **PyInstaller's** marker, and this project builds with Nuitka.
+    Measured on a compiled one-liner: ``sys.frozen`` is *absent* and ``__compiled__``
+    is ``True``. So every packaged install took the from-source branch below and wrote
+    its macros next to the exe — which is read-only in Program Files, and which
+    ``data_root``'s own docstring says it exists to avoid.
+
+    Both markers are checked, so changing packager cannot silently move everyone's
+    data again.
+    """
+    return bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+
+
 def app_root() -> Path:
-    """Return the application install directory (read-only resources)."""
-    if getattr(sys, "frozen", False):
+    """Return the application install directory (read-only resources).
+
+    Nuitka reports ``sys.executable`` as ``<dist>/python.exe`` rather than the
+    renamed binary, which is fine — only the directory is wanted here.
+    """
+    if is_packaged():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
 
@@ -44,7 +63,7 @@ def data_root() -> Path:
     When running from source: the project root — keeps macros/ and templates/
     next to the code for easy development.
     """
-    if getattr(sys, "frozen", False):
+    if is_packaged():
         import os
         appdata = os.environ.get("APPDATA")
         if appdata:
@@ -71,15 +90,18 @@ def ensure_dirs() -> None:
 def migrate_legacy_data() -> None:
     """One-time migration of user data into the current APPDATA location.
 
-    Only runs when the app is frozen (packaged as .exe); from source, data_root()
-    is the project directory and none of this applies. Copies rather than moves, so
-    the old location stays intact for the user to check before deleting.
+    Only runs in a packaged build; from source, data_root() is the project directory
+    and none of this applies. Copies rather than moves, so the old location stays
+    intact for the user to check before deleting.
 
     Two sources: the original exe-relative layout, and the APPDATA folder under the
     project's previous name. A rename must not orphan someone's captured templates —
     re-capturing them is exactly the tedious work this tool exists to avoid.
+
+    This is also the migration that picks up data left beside the exe by a build that
+    never recognised itself as packaged — which, until `is_packaged`, was all of them.
     """
-    if not getattr(sys, "frozen", False):
+    if not is_packaged():
         return
 
     old_root = app_root()
