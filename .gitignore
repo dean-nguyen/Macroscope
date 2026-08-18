@@ -226,6 +226,10 @@ _debug_*.png
 # ships, which have to be versioned or the release workflow has nothing to build from.
 /templates/
 /macros/
+# The seeding marker records what this machine was given and its hashes. Same
+# category as the two above -- user state, not source. It was tracked by accident
+# and every launch dirtied the working tree.
+/.starter_seeded
 
 # Commercial: real build-time secrets (KeyAuth creds, HMAC secret).
 # The .example.py is committed; the real file never is.

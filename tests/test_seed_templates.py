@@ -135,3 +135,37 @@ def test_the_marker_keeps_macros_and_images_apart(monkeypatch, tmp_path):
     assert "Demo" in marker["seeded"]
     assert "a.png" in marker["templates"]
     assert "a.png" not in marker["seeded"]
+
+
+def test_the_report_comes_back_tagged_for_the_log(monkeypatch, tmp_path):
+    """The gap this closes: seeding runs before the window exists, so `log_fn` reached
+    stdlib logging only — invisible in a build with the console disabled. The lines that
+    matter say a file of yours differs and was left alone, which is advice nobody could
+    read. `gui/app.py` opens the log drawer for a "warn", so the severity has to survive.
+    """
+    src = _pack(tmp_path, **{"a.png": b"one"})
+    root = tmp_path / "data"
+    monkeypatch.setattr(paths, "PACKS_DIR", src.parent)
+    monkeypatch.setattr(paths, "MACROS_DIR", root / "macros")
+    monkeypatch.setattr(paths, "TEMPLATES_DIR", root / "templates")
+    monkeypatch.setattr(paths, "data_root", lambda: root)
+    root.mkdir(parents=True, exist_ok=True)
+
+    notes = paths.seed_starter_macros("demo")
+    assert [tag for _, tag in notes] == ["ok", "ok"], notes
+
+    (root / "templates" / "a.png").write_bytes(b"my own capture")
+    (src / "templates" / "a.png").write_bytes(b"pack moved on")
+    notes = paths.seed_starter_macros("demo")
+
+    assert notes, "a kept local version must be reported"
+    assert all(tag == "warn" for _, tag in notes), notes
+    assert "differs" in notes[0][0]
+
+
+def test_log_fn_still_takes_one_argument(monkeypatch, tmp_path):
+    """Kept compatible on purpose: the callback is also `log.info` and a bare list
+    append in these tests, neither of which knows about tags."""
+    src = _pack(tmp_path, **{"a.png": b"one"})
+    templates, said = _run(monkeypatch, tmp_path, src)
+    assert said and all(isinstance(line, str) for line in said)

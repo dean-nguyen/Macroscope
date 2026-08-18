@@ -16,7 +16,7 @@ import logging
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ def migrate_legacy_data() -> None:
         _migrate_dir(legacy_root / "templates", TEMPLATES_DIR)
 
 
-def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> None:
+def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> List[Tuple[str, str]]:
     """Keep the user's library in step with the bundled pack, without ever losing
     work they did themselves.
 
@@ -144,7 +144,13 @@ def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> None:
     is theirs, and is left alone with a line in the log saying the pack has moved on —
     guessing which side to keep is not seeding's business.
     """
-    say = log_fn or (lambda msg: log.info("%s", msg))
+    forward = log_fn or (lambda msg: log.info("%s", msg))
+    notes: List[Tuple[str, str]] = []
+
+    def say(msg: str, tag: str = "info") -> None:
+        notes.append((msg, tag))
+        forward(msg)
+
     marker = data_root() / ".starter_seeded"
     seeded = _read_seeded(marker)
     seeded_images = _read_seeded(marker, key="templates")
@@ -166,20 +172,23 @@ def seed_starter_macros(pack: str = "onmyoji", log_fn=None) -> None:
 
     if added:
         say(f"Added {len(added)} macro(s) from the {folder_name} pack: "
-            f"{', '.join(added)}")
+            f"{', '.join(added)}", "ok")
     if updated:
         say(f"Updated {len(updated)} macro(s) to the current {folder_name} pack: "
-            f"{', '.join(updated)}")
+            f"{', '.join(updated)}", "ok")
     for name in diverged:
         say(f"'{name}' differs from the {folder_name} pack, so it was left as it is. "
-            f"Delete it to take the pack's version.")
+            f"Delete it to take the pack's version.", "warn")
     if img_added:
-        say(f"Added {len(img_added)} image(s) from the {folder_name} pack")
+        say(f"Added {len(img_added)} image(s) from the {folder_name} pack", "ok")
     if img_updated:
-        say(f"Updated {len(img_updated)} image(s) to the current {folder_name} pack")
+        say(f"Updated {len(img_updated)} image(s) to the current {folder_name} pack",
+            "ok")
     for name in img_diverged:
         say(f"Image '{name}' differs from the {folder_name} pack, so your version was "
-            f"kept. Score it with the match report if it stopped working.")
+            f"kept. Score it with the match report if it stopped working.", "warn")
+
+    return notes
 
 
 # Kept local rather than imported from template_store, which imports *this* module.
