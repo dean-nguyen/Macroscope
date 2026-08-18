@@ -90,16 +90,26 @@ def test_an_invitation_is_declined_by_its_own_button():
 
 def test_the_invitation_is_cleared_before_the_macro_starts_clicking():
     """It can arrive over any screen, so it has to be dealt with in the preamble —
-    ahead of the list check that gates every click."""
+    ahead of the check that gates every click.
+
+    The gate is found structurally rather than by name. It used to be a tuple of the two
+    raid markers, which meant adding a third macro raised StopIteration instead of
+    saying what was wrong — and a per-macro list of marker names has to be edited by
+    whoever adds a macro, which is exactly the person who will not think to.
+
+    What is actually invariant: every pack macro ends with one `image_check` whose
+    `on_found` holds everything that clicks. That is the gate, wherever its marker came
+    from.
+    """
     for name, macro in macros():
+        gate = macro["actions"][-1]
+        assert gate["type"] == "image_check" and gate.get("on_found"), (
+            f"{name}: the last action should be the screen check that gates the body")
+
         types = [a.get("template", "") for a in macro["actions"]]
         decline = next(i for i, t in enumerate(types)
                        if t.endswith("onmyoji_wanted_quest_decline.png"))
-        gate = next(i for i, t in enumerate(types)
-                    if t.endswith(("onmyoji_realmraid_refresh.png",
-                                   "onmyoji_realmraid_guild_progress.png"))
-                    and i > decline)
-        assert decline < gate, f"{name}: the invite is handled too late"
+        assert decline < len(types) - 1, f"{name}: the invite is handled too late"
 
 
 def test_every_template_a_macro_uses_is_in_the_spec():

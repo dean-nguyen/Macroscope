@@ -53,13 +53,15 @@ def test_seed_skips_macro_without_name(tmp_path):
 
 
 def test_bundled_onmyoji_pack_seeds_all_macros(tmp_path):
-    # Two, and the count is the point. It was ten, of which six were byte-identical in
+    # Three, and the count is the point. It was ten, of which six were byte-identical in
     # structure apart from one line choosing which limit to stop on, and none of which
     # navigated anywhere — so the file name was documentation of which screen to open
     # first, and the pack was one macro wearing nine labels.
     #
-    # These two are what has actually been run against the live game end to end, and
-    # they genuinely differ from each other: the Individual list is a fixed 3x3 grid
-    # with a Refresh button, the Guild list a scrolling two-column member list with its
-    # own Win(s) counter and no Refresh.
-    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 2
+    # Each of these three is a genuinely different screen. The Individual list is a
+    # fixed 3x3 grid with a Refresh button; the Guild list a scrolling two-column member
+    # list with its own Win(s) counter and no Refresh; the Sougenbi Foolery soul gate has
+    # no list at all — one button, and a marker that says which of the three gates is
+    # selected. Nesting depth 12, 9 and 2 respectively, which is the same difference
+    # stated in structure.
+    assert _seed_macros(PACKS_DIR / "onmyoji", tmp_path / "out") == 3
