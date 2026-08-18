@@ -4,5 +4,10 @@ Pillow==10.4.0
 keyboard==0.13.5
 pywin32==308
 numpy>=1.20
+# Not opencv-python-headless. It looks like the obvious size win for a program
+# that never calls cv2.imshow, and on Windows it is not: measured, the two wheels
+# are 42.0 MB and 41.8 MB. headless drops the Qt/highgui parts, and the 29 MB
+# opencv_videoio_ffmpeg DLL -- the actual bulk -- ships in both. Exclude that at
+# build time instead (see release.yml).
 opencv-python>=4.5
 windows-capture>=1.5.0

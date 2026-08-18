@@ -109,7 +109,14 @@ def _fitted_label(parent, text: str, tail_share: float = 0.6, **kw) -> tk.Label:
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, startup_notes=None):
+        """*startup_notes* is what seeding reported, as (message, tag) pairs.
+
+        Seeding runs in `main.py` before this window exists, so its only outlet was
+        stdlib logging — invisible in a build with the console disabled. The lines that
+        matter are the ones saying a macro or image of yours differs from the pack and
+        was therefore left alone: advice nobody could read.
+        """
         super().__init__()
         # Must run before any widget is laid out: measures the display scale and
         # makes pixel padding follow the same DPI Tk already uses for fonts.
@@ -133,6 +140,10 @@ class App(tk.Tk):
 
         self._build_ui()
         self._reload_macros()
+        # After the log box exists. A "warn" opens the drawer on its own, so a kept
+        # local version announces itself instead of sitting in a hidden panel.
+        for message, tag in (startup_notes or ()):
+            self._log(message, tag=tag)
         self._register_stop_hotkey()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 

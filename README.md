@@ -16,7 +16,7 @@ python main.py
 The [latest release](https://github.com/dean-nguyen/Macroscope/releases/latest)
 carries two things:
 
-- **`Macroscope-v*.zip`** (~76 MB) — the app, no Python needed. Unzip anywhere and run
+- **`Macroscope-v*.zip`** (~62 MB) — the app, no Python needed. Unzip anywhere and run
   `Macroscope.exe`; your macros and images go to `%APPDATA%\Macroscope`, so installing
   into Program Files is fine. It is **unsigned**, so Windows will show *"Windows
   protected your PC"* — *More info → Run anyway*. Most of the size is OpenCV.
@@ -193,7 +193,7 @@ CLAUDE.md              engine behaviour, and the measurements behind it
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests/          # 371 tests
+python -m pytest tests/          # 373 tests
 python tools/import_check.py     # what CI also runs
 ```
 

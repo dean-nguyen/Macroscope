@@ -20,11 +20,12 @@ from gui.app import App
 def main():
     ensure_dirs()
     migrate_legacy_data()
-    # Adds pack macros the user has never been offered, and updates ones they have
-    # not edited. A macro they changed is left alone and reported.
-    seed_starter_macros()
-    app = App()
-    app.mainloop()
+    # Adds pack macros and images the user has never been offered, and updates the ones
+    # they have not edited. Anything they changed is left alone and reported — and the
+    # report has to be carried into the window, because this runs before it exists and
+    # a packaged build has no console for stdlib logging to reach.
+    notes = seed_starter_macros()
+    App(startup_notes=notes).mainloop()
 
 
 if __name__ == "__main__":

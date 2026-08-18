@@ -55,6 +55,12 @@ jobs:
           # skipped pack leaves 3 there and would fail the release on success.
           exit 0
 
+      # The ffmpeg DLL is 29.4 MB of video I/O this engine never touches -- it calls
+      # matchTemplate, cvtColor, resize and the contour functions, and nothing else.
+      # Measured: dist 202 -> 175 MB, download 76.1 -> 61.6 MB. Verified by deleting the
+      # DLL from a working install: cv2 still imports, every call this project makes
+      # still works, and the suite passes. Note opencv-python-headless is NOT the way to
+      # do this -- see requirements.txt.
       - name: Build with Nuitka
         run: |
           python -m nuitka --standalone --zig --windows-console-mode=disable `
@@ -66,6 +72,7 @@ jobs:
             --include-module=win32con `
             --include-module=pywintypes `
             --include-data-dir=packs=packs `
+            --noinclude-dlls="*opencv_videoio_ffmpeg*" `
             --output-dir=. `
             --output-filename=Macroscope.exe `
             --assume-yes-for-downloads `
