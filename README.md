@@ -83,13 +83,15 @@ a single capture. That is cheaper, but mostly it is *correct*: on an animated sc
 two captures taken milliseconds apart are not the same image, and checks that
 disagreed about what was on screen produced real bugs.
 
-**One macro can drive several windows.** Two clients of the same game side by side is
-the ordinary case, and a run is keyed by *(macro, window)* rather than by name — so one
-macro started on two windows is two runs, with their own guards and their own log lines.
-When a macro's targeting matches more than one window the app asks which you meant
-rather than taking the first. To fix a macro to one account, pin it by **screen
-position** (`target_position`): a window handle is new every launch, but the left-hand
-window is still the left-hand window.
+**One macro, one window — unless you say otherwise.** Pin a macro to a client by
+**screen position** (`target_position`) and that is the only window it will ever drive:
+a window handle is new every launch, but the left-hand window is still the left-hand
+window. One macro per account is the normal way to run two clients.
+
+Only an **unpinned** macro is ambiguous, and there the app asks which window you meant
+rather than taking the first — silently taking it meant the second instance never ran
+and nothing said so. Answer "all of them" and you get one run per window: a run is keyed
+by *(macro, window)*, so each has its own guards and its own log lines.
 
 **It stops when it is clicking at a screen it cannot read.** If a looping macro spends
 five minutes sending input without recognising anything it looks for, it stops and says
@@ -193,7 +195,7 @@ CLAUDE.md              engine behaviour, and the measurements behind it
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests/          # 373 tests
+python -m pytest tests/          # 383 tests
 python tools/import_check.py     # what CI also runs
 ```
 

@@ -163,3 +163,80 @@ def test_picking_a_window_with_a_unique_title_records_no_position(monkeypatch):
                            _target_position=7)
     MacroEditor._on_window_picked(form, only[0], only[1])
     assert form._target_position is None
+
+
+# ── the pin is part of the targeting ──────────────────────────────────────────
+#
+# `matching_windows` is what lets the app offer "run on all of them", and it used to
+# read `target_window` alone. So a macro pinned to one client still reported both, the
+# app asked "run on all 2?" about a macro that had already been told which one, and
+# answering *yes* calls `run(hwnd=…)` per window — which overrides the pin. With one
+# macro per account that runs account A's macro on account B, the exact failure the pin
+# exists to prevent.
+#
+# Measured on two live clients before the fix: `_resolve_hwnd` returned 461138 for
+# position 0 and 133830 for position 1, while `matching_windows` returned 2 every time.
+
+def _engine(monkeypatch, macro, windows):
+    _fake_windows(monkeypatch, windows)
+    engine = MacroEngine(log_fn=lambda *a, **k: None)
+    with engine._lock:
+        engine._macros["m"] = macro
+    return engine
+
+
+def test_an_unpinned_macro_is_ambiguous_and_reports_every_window(monkeypatch):
+    """Asking is right here: without it the second instance never ran and nothing said
+    so."""
+    engine = _engine(monkeypatch, _macro(), [LEFT, RIGHT])
+    assert len(engine.matching_windows("m")) == 2
+
+
+@pytest.mark.parametrize("index, expected", [(0, LEFT[0]), (1, RIGHT[0])])
+def test_a_position_pinned_macro_reports_only_that_window(monkeypatch, index, expected):
+    engine = _engine(monkeypatch, _macro(target_position=index), [RIGHT, LEFT])
+    assert [h for h, _ in engine.matching_windows("m")] == [expected]
+
+
+def test_a_position_that_does_not_exist_reports_no_window(monkeypatch):
+    """Never the whole list. A position is how a macro says "the left-hand client", so
+    offering the others is offering the wrong account — and `_resolve_hwnd` returns
+    None here for the same reason."""
+    engine = _engine(monkeypatch, _macro(target_position=5), [LEFT, RIGHT])
+    assert engine.matching_windows("m") == []
+
+
+def test_a_live_handle_pin_reports_only_that_window(monkeypatch):
+    engine = _engine(monkeypatch, _macro(target_hwnd=RIGHT[0]), [LEFT, RIGHT])
+    assert [h for h, _ in engine.matching_windows("m")] == [RIGHT[0]]
+
+
+def test_a_stale_handle_is_not_a_pin_and_the_choice_comes_back(monkeypatch):
+    """`_resolve_hwnd` falls back to the title search when the saved handle is dead, so
+    the macro really is ambiguous again — this is the one case where asking is right
+    despite `target_hwnd` being set."""
+    engine = _engine(monkeypatch, _macro(target_hwnd=999999), [LEFT, RIGHT])
+    monkeypatch.setattr(bi.win32gui, "IsWindow", lambda h: h != 999999)
+    assert len(engine.matching_windows("m")) == 2
+
+
+def test_position_wins_over_a_handle_here_too(monkeypatch):
+    """Same precedence as `_resolve_hwnd`, or the app would offer a window the run
+    would not use."""
+    macro = _macro(target_position=0, target_hwnd=RIGHT[0])
+    engine = _engine(monkeypatch, macro, [LEFT, RIGHT])
+    assert [h for h, _ in engine.matching_windows("m")] == [LEFT[0]]
+    assert engine._resolve_hwnd(macro) == LEFT[0]
+
+
+@pytest.mark.parametrize("pin", [None, 0, 1])
+def test_it_agrees_with_resolve_hwnd_in_every_case(monkeypatch, pin):
+    """The two must not drift: what the app offers has to be what the run will drive."""
+    macro = _macro() if pin is None else _macro(target_position=pin)
+    engine = _engine(monkeypatch, macro, [LEFT, RIGHT])
+    windows = engine.matching_windows("m")
+    resolved = engine._resolve_hwnd(macro)
+    if len(windows) == 1:
+        assert windows[0][0] == resolved
+    else:
+        assert resolved == windows[0][0], "the first offered is what an unpinned run takes"

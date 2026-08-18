@@ -369,6 +369,30 @@ class MacroEngine:
 
         What lets a caller offer "run on all of them": two instances of the same game
         are one window pattern and two windows, and the macro itself cannot say that.
+
+        **A pin is part of the targeting.** This used to read `target_window` alone, so
+        a macro pinned to one client still reported both — measured on two live windows:
+        `_resolve_hwnd` correctly returned 461138 for position 0 and 133830 for
+        position 1, while this returned 2 every time. The app therefore asked "run on
+        all 2?" about a macro that had already been told which one, and answering *yes*
+        called `run(hwnd=…)` per window, which overrides the pin. With one macro per
+        account that runs account A's macro on account B — the exact failure the pin
+        exists to prevent.
+
+        The three pin outcomes match `_resolve_hwnd` exactly, and the differences
+        matter:
+
+        * A **position** that resolves gives that one window; a position that does not
+          gives *none*. It must never fall back to the whole list — a position is how a
+          macro says "the left-hand client", and offering the others is offering the
+          wrong account.
+        * A **live** `target_hwnd` gives that window.
+        * A **stale** `target_hwnd` is not a pin any more. `_resolve_hwnd` falls back to
+          the title search there, so the macro is genuinely ambiguous again and asking
+          is right.
+
+        Silent on purpose: this runs on every press of Play and `_resolve_hwnd` resolves
+        again inside the run, so logging here would say everything twice.
         """
         macro = self.get_macro(name)
         if macro is None:
@@ -377,8 +401,24 @@ class MacroEngine:
         if not target:
             return []
         try:
-            from engine.background_input import find_all_windows
-            return find_all_windows(target, (macro.get("target_class") or "") or None)
+            from engine.background_input import (by_screen_position, find_all_windows,
+                                                 is_window_valid)
+            candidates = find_all_windows(target, (macro.get("target_class") or "")
+                                          or None)
+
+            index = _position_index(macro.get("target_position"))
+            if index is not None:
+                ordered = by_screen_position(candidates)
+                return [ordered[index]] if 0 <= index < len(ordered) else []
+
+            pinned = macro.get("target_hwnd")
+            if pinned and is_window_valid(pinned):
+                same = [(h, t) for h, t in candidates if h == pinned]
+                # A live pin whose window no longer matches the title is still what
+                # `_resolve_hwnd` returns, so report it rather than the alternatives.
+                return same or [(pinned, "")]
+
+            return candidates
         except Exception:
             return []
 
