@@ -43,8 +43,8 @@ from or scores too close to a template you already have.
 | `onmyoji_realmraid_guild_progress.png` | Realm Raid → **Guild** tab → the red **Raid Progress** banner, left panel | The Guild list has no Refresh, so this is its equivalent marker. |
 | `onmyoji_dialog_ok.png` | Realm Raid → **Refresh** → the **OK** on "Raid log progress will be reset…" | The standard confirm scroll, reused across the game. Without it the macro presses Refresh forever and never refreshes anything. |
 | `onmyoji_reward_confirm.png` | Finish any fight → **Tap to continue** at the bottom | Needs one real battle. Every macro clears every result screen with it, on a win and a loss alike. |
-| `onmyoji_souls_challenge.png` | Souls → **Sougenbi** → **Foolery** → the **Challenge** button, bottom right | Crop the **word**, not the diamond around it and not the `x1` cost under it: the diamond is shared chrome and the number changes. |
-| `onmyoji_souls_foolery.png` | The same screen → the **Foolery** label in the sidebar, **selected** | The 'am I on the right gate' marker. Capture it *selected* — see below. |
+| `onmyoji_souls_challenge.png` | Souls → **Sougenbi** → **Foolery** → the **Challenge** button, bottom right | **Ships with the pack.** Crop the **word**, not the diamond around it and not the `x1` cost under it: the diamond is shared chrome and the number changes. |
+| `onmyoji_souls_foolery.png` | The same screen → the **Foolery** label in the sidebar, **selected** | **Ships with the pack.** The 'am I on the right gate' marker. Capture it *selected* — see below. |
 
 ## Capture these when you happen to see them
 
