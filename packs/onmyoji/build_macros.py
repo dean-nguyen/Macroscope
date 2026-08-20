@@ -42,24 +42,40 @@ TAP_THRESHOLD = 0.70
 
 
 # How long a cell click is given to open its target panel, and the single number that
-# decides how fast a raid tick is. Measured from the generated macro rather than guessed:
+# decides how fast a raid tick is.
 #
-#   Individual, 9 cells, every one already defeated → 13.5 s of a 16.0 s tick, 63 captures
-#   Guild,      6 cells, same                       → 10.2 s of a 12.7 s tick, 42 captures
+# MEASURED on a live 1810x1020 client, `game_probe settle`:
 #
-# A defeated target opens nothing, so it pays the whole budget — and the chain has no
-# memory, so a cell found dead on one tick is charged the same again on the next. Late in
-# a sweep almost every cell is dead, which is when the macro feels slowest.
+#   a live cell's Attack button appears after 506 ms and 512 ms (scores 0.961, 0.971)
+#   a defeated cell (KO stamp) never opens one — the whole budget buys nothing
+#   one failing full-frame search costs ~200 ms at this size; a succeeding one ~100 ms
 #
-# The costs are asymmetric, and that is the argument for a smaller number: a budget that
-# is too short misses a live panel and costs *one more tick*, while a budget that is too
-# long costs its full length on *every dead cell, every tick*. But the number that makes
-# it safe is how quickly a live panel actually draws, and that has never been measured —
-# `python tools/game_probe.py --title Onmyoji settle 291 203 onmyoji_realmraid_attack.png`
-# answers it. A guessed settle was added here once on a theory about panel animation,
-# could not be confirmed, and was removed; guessing it downwards deserves the same bar.
-PANEL_BUDGET_MS = 1500
-PANEL_POLL_MS = 200
+# The poll loop is `search then sleep(poll_ms)`, so a cycle is search + poll, not poll.
+# At poll=200 the screen is sampled at ~0, 400, 800, 1200 ms: the 400 ms sample is too
+# early for a 510 ms panel, so it was not found until ~800. At poll=100 the samples fall
+# at ~0, 300, 600, 900 — so a live panel is found sooner *and* a dead cell stops sooner.
+#
+# 900 ms is 1.76x the slowest measured panel, with two samples after it. What it saves,
+# from the same count that showed the problem:
+#
+#   Individual, 9 cells, all defeated: 13.5s -> 8.1s   tick 16.0s -> 10.6s
+#   Guild,      6 cells, all defeated: 10.2s -> 6.6s   tick 12.7s ->  9.1s
+#
+# Guild keeps a 1.2s wait of its own for selecting the tab, which is why its blocking
+# time is 6.6s and not 6 x 0.9s. Recounted from the generated JSON rather than reasoned
+# about: the first version of this comment said 7.3s because it forgot that wait.
+#
+# A budget too short is recoverable and a budget too long is not: missing a live panel
+# costs one more tick, while overpaying costs the full budget on every dead cell, every
+# tick, forever. The chain has no memory, so a cell found dead is charged again next tick.
+#
+# Only two clean samples, and honestly so — the third was contaminated by the previous
+# target's panel still being open and read "0 ms", which is why the probe now refuses to
+# measure when the template is already on screen. The real fix is not a shorter wait but
+# recognising the KO stamp, so a dead cell costs one match instead of a timeout; that
+# needs `image_check` to accept a region, which it does not.
+PANEL_BUDGET_MS = 900
+PANEL_POLL_MS = 100
 
 def frac(x, y):
     return {"xp": round(x / W, 4), "yp": round(y / H, 4)}

@@ -59,8 +59,15 @@ META = OUT_DIR / "frame.json"
 
 # ── window handling ───────────────────────────────────────────────────────────
 
-def find_window(title_substring: str):
-    """First visible top-level window whose title contains *title_substring*."""
+def find_window(title_substring: str, position=None):
+    """A visible top-level window whose title contains *title_substring*.
+
+    Two clients of one game share a title exactly, and EnumWindows order is not
+    something to rely on — so with more than one match this refuses to guess unless
+    *position* says which, counting left to right then top to bottom. That is the same
+    ordering `target_position` uses in a macro, deliberately: a probe that measured the
+    other account would be worse than one that stopped.
+    """
     hits = []
 
     def cb(hwnd, _):
@@ -72,6 +79,20 @@ def find_window(title_substring: str):
     win32gui.EnumWindows(cb, None)
     if not hits:
         sys.exit(f"No visible window matching {title_substring!r}")
+
+    if position is not None:
+        from engine.background_input import by_screen_position
+        ordered = by_screen_position(hits)
+        if not 0 <= position < len(ordered):
+            sys.exit(f"--position {position} but only {len(ordered)} window(s) match")
+        return ordered[position]
+    if len(hits) > 1:
+        from engine.background_input import by_screen_position
+        listing = chr(10).join(
+            f"    --position {i}  hwnd {h}  {win32gui.GetWindowRect(h)[:2]}"
+            for i, (h, _t) in enumerate(by_screen_position(hits)))
+        sys.exit(f"{len(hits)} windows match {title_substring!r}; say which:"
+                 + chr(10) + listing)
     return hits[0]
 
 
@@ -208,7 +229,7 @@ def tc_existing(exclude: str):
 def cmd_click(args):
     """Post a click at client coordinates, then re-capture."""
     from engine import background_input as bi
-    hwnd, _ = find_window(args.title)
+    hwnd, _ = find_window(args.title, args.position)
     ensure_shown(hwnd)
     if args.hold:
         # Some UIs drop a press+release delivered in the same frame.
@@ -236,43 +257,76 @@ def cmd_settle(args):
     dead cells is 13.5 s of a 16.0 s tick, every tick, because the chain has no memory
     of which cells it already found dead.
 
-    So: post one click, sample at *interval* until the template matches or the budget
-    runs out, and print when it first crossed the threshold. Run it several times — one
-    number is an anecdote, and what a timeout has to cover is the slow end.
+    Two things this got wrong first, both of which made the probe answer about itself
+    rather than about the game:
 
-    Reports "never" as a real answer. That is what a dead cell looks like, and knowing
-    the budget was paid for nothing is the point.
+    **It must not run under `unrationed_discovery()`.** That switch is for the template
+    report, and CLAUDE.md says a macro must never turn it on — so a probe measuring what
+    a macro experiences must not either. With it on, every poll ran a full ~2.7 s scale
+    search for a button that was not on screen, so a 2 s budget took exactly one sample.
+
+    **The scale cache has to be warmed with a template that is already visible.** A
+    failed search caches nothing, so warming with the template being timed — which by
+    definition is not there yet — leaves every later search paying full discovery.
+    Measured at 1810x1020: 2797 ms. The cache is keyed by window size as well as by
+    template, so any visible template teaches the window's scale to the rest.
+
+    "never" is a real answer, and it is what a defeated cell looks like: the budget was
+    spent finding nothing.
     """
     from engine import background_input as bi, image_matcher as im
-    hwnd, _ = find_window(args.title)
+    hwnd, _ = find_window(args.title, args.position)
     ensure_shown(hwnd)
 
     ref = args.template if "/" in args.template else f"templates/{args.template}"
+    warm_ref = args.warm_with or args.template
+    if "/" not in warm_ref:
+        warm_ref = f"templates/{warm_ref}"
+
     im.clear_scale_cache()
-    with im.unrationed_discovery():        # a report must not be rationed, see CLAUDE.md
-        bi.post_click(hwnd, args.x, args.y)
-        start = time.time()
-        first = None
-        samples = []
-        while (elapsed := time.time() - start) < args.budget:
-            found = im.find_template(ref, hwnd=hwnd, threshold=args.threshold)
-            samples.append((elapsed, None if not found else found[2]))
-            if found and first is None:
-                first = elapsed
-                break
-            time.sleep(args.interval)
+    warm_start = time.time()
+    warmed = im.find_template(warm_ref, hwnd=hwnd, threshold=args.threshold)
+    warm_ms = (time.time() - warm_start) * 1000
+
+    # The template must be ABSENT before the click, or there is nothing to time. Measured
+    # the hard way: a second run with the previous target's panel still open reported
+    # "appeared after 0 ms" — it had found the old panel, and a 0 ms settle is exactly the
+    # kind of answer that gets believed.
+    already = im.find_template(ref, hwnd=hwnd, threshold=args.threshold)
+    if already and not args.allow_visible:
+        sys.exit(f"{ref} is already on screen (score {already[2]:.3f}) — close it first, "
+                 f"or there is nothing to time. --allow-visible overrides.")
+
+    bi.post_click(hwnd, args.x, args.y)
+    start = time.time()
+    samples, first = [], None
+    while (elapsed := time.time() - start) < args.budget:
+        search_start = time.time()
+        found = im.find_template(ref, hwnd=hwnd, threshold=args.threshold)
+        samples.append((elapsed, (time.time() - search_start) * 1000,
+                        found[2] if found else None))
+        if found:
+            first = elapsed
+            break
+        time.sleep(args.interval)
 
     print(f"clicked ({args.x},{args.y}), watching {ref} at threshold {args.threshold}")
-    for elapsed, score in samples:
-        mark = "MATCH" if score and score >= args.threshold else "     "
+    print(f"  warmed with {warm_ref}: {warm_ms:.0f} ms, "
+          f"{'found it' if warmed else 'NOT FOUND'}")
+    if not warmed:
+        print("    nothing was cached — pass --warm-with a template that IS on screen, "
+              "or every sample below pays full scale discovery")
+    for elapsed, search_ms, score in samples:
         shown = "-" if score is None else f"{score:.3f}"
-        print(f"  +{elapsed * 1000:6.0f} ms  {mark}  best {shown}")
+        mark = "MATCH" if score is not None else "     "
+        print(f"  +{elapsed * 1000:6.0f} ms  {mark}  best {shown:>6}  "
+              f"(search {search_ms:5.0f} ms)")
     if first is None:
-        print(f"  never appeared within {args.budget:.1f}s — which is what a dead cell "
-              f"looks like, and the whole budget was spent finding that out")
+        print(f"  never appeared within {args.budget:.1f}s, over {len(samples)} samples "
+              f"— which is what a dead cell looks like, and the whole budget bought "
+              f"nothing")
     else:
-        print(f"  appeared after {first * 1000:.0f} ms "
-              f"({len(samples)} samples at {args.interval * 1000:.0f} ms)")
+        print(f"  appeared after {first * 1000:.0f} ms, on sample {len(samples)}")
 
 
 def cmd_watch(args):
@@ -325,6 +379,10 @@ def build_parser():
     parser.add_argument("--title", default="Onmyoji",
                         help="substring of the target window title "
                              "(default: Onmyoji; must precede the subcommand)")
+    parser.add_argument("--position", type=int, default=None,
+                        help="which matching window, left to right then top to bottom "
+                             "(same ordering as a macro's target_position). Required "
+                             "when more than one window matches.")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("shot", help="capture the target window").set_defaults(fn=cmd_shot)
@@ -356,6 +414,12 @@ def build_parser():
     p.add_argument("--threshold", type=float, default=0.8)
     p.add_argument("--interval", type=float, default=0.05)
     p.add_argument("--budget", type=float, default=3.0)
+    p.add_argument("--allow-visible", action="store_true",
+                   help="measure even though the template is already on screen "
+                        "(the answer will be 0 ms and will mean nothing)")
+    p.add_argument("--warm-with", default=None,
+                   help="a template already on screen, used only to cache the window's "
+                        "scale. Without it the first sample measures scale discovery.")
     p.set_defaults(fn=cmd_settle)
 
     p = sub.add_parser("watch", help="capture a timed sequence with change scores")

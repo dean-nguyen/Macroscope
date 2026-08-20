@@ -188,8 +188,8 @@
           "type": "image_wait",
           "template": "templates/onmyoji_realmraid_attack.png",
           "threshold": 0.8,
-          "timeout_ms": 1500,
-          "poll_ms": 200
+          "timeout_ms": 900,
+          "poll_ms": 100
         },
         {
           "type": "find_and_click",
@@ -256,8 +256,8 @@
               "type": "image_wait",
               "template": "templates/onmyoji_realmraid_attack.png",
               "threshold": 0.8,
-              "timeout_ms": 1500,
-              "poll_ms": 200
+              "timeout_ms": 900,
+              "poll_ms": 100
             },
             {
               "type": "find_and_click",
@@ -324,8 +324,8 @@
                   "type": "image_wait",
                   "template": "templates/onmyoji_realmraid_attack.png",
                   "threshold": 0.8,
-                  "timeout_ms": 1500,
-                  "poll_ms": 200
+                  "timeout_ms": 900,
+                  "poll_ms": 100
                 },
                 {
                   "type": "find_and_click",
@@ -392,8 +392,8 @@
                       "type": "image_wait",
                       "template": "templates/onmyoji_realmraid_attack.png",
                       "threshold": 0.8,
-                      "timeout_ms": 1500,
-                      "poll_ms": 200
+                      "timeout_ms": 900,
+                      "poll_ms": 100
                     },
                     {
                       "type": "find_and_click",
@@ -460,8 +460,8 @@
                           "type": "image_wait",
                           "template": "templates/onmyoji_realmraid_attack.png",
                           "threshold": 0.8,
-                          "timeout_ms": 1500,
-                          "poll_ms": 200
+                          "timeout_ms": 900,
+                          "poll_ms": 100
                         },
                         {
                           "type": "find_and_click",
@@ -528,8 +528,8 @@
                               "type": "image_wait",
                               "template": "templates/onmyoji_realmraid_attack.png",
                               "threshold": 0.8,
-                              "timeout_ms": 1500,
-                              "poll_ms": 200
+                              "timeout_ms": 900,
+                              "poll_ms": 100
                             },
                             {
                               "type": "find_and_click",
