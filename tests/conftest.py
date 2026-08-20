@@ -14,6 +14,21 @@ monkeypatch restores after each test, so it composes with this.
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="session")
+def no_persisted_scale_cache():
+    """The suite must not read or write the on-disk scale cache.
+
+    Same reasoning as `no_real_input`: a test that matched would otherwise behave
+    differently on a machine where the app had already run and cached a scale, and it
+    would write into the developer's data directory. Both make the matcher look flaky
+    for reasons that have nothing to do with it.
+    """
+    from engine import image_matcher as im
+    im.set_persistence(False)
+    yield
+    im.set_persistence(True)
+
+
 @pytest.fixture(scope="session")
 def tk_root():
     """One Tk root for the whole run — never create a second, never destroy this one.

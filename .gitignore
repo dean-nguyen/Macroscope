@@ -230,6 +230,9 @@ _debug_*.png
 # category as the two above -- user state, not source. It was tracked by accident
 # and every launch dirtied the working tree.
 /.starter_seeded
+# Discovered template scales. Same category: it describes this machine's window
+# sizes, and a wrong entry self-corrects, so there is nothing to version.
+/.scale_cache.json
 
 # Commercial: real build-time secrets (KeyAuth creds, HMAC secret).
 # The .example.py is committed; the real file never is.

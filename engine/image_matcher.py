@@ -15,6 +15,7 @@ Coordinate spaces
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import threading
 import time
@@ -195,6 +196,97 @@ _seen: dict = {}
 # Guards the caches above: several macros can match concurrently (run_folder).
 _scale_lock = threading.Lock()
 
+# ── the scale cache outlives the process ──────────────────────────────────────
+#
+# Discovering a template's scale is the single most expensive thing this module does:
+# measured 2797 ms per template on a 1810x1020 window, and a pack reads 11 of them. In
+# memory only, every launch paid that again — and the rationing that keeps one search
+# from starving the others turns the bill into a *delay*, not just cost. Measured on a
+# live client: while a battle is on screen the "Tap to continue" template is asked for,
+# is genuinely absent, and a failed search caches nothing, so it is locked out for
+# `_DISCOVERY_INTERVAL`. When the result screen then appears it is still inside that
+# lockout, reads as absent, and the macro waits — worst case about 23 s after the screen
+# was already drawn. The same template scored 0.948 against that very frame with
+# discovery unrationed.
+#
+# So the answer is not a shorter interval, which exists for a good reason. It is to stop
+# rediscovering what was already known: once a scale is on disk the cheap path hits it on
+# the first try and no search is attempted at all.
+#
+# A stale entry is safe and self-correcting. If a template is re-captured at a different
+# size its old scale simply fails the cheap path, and discovery runs exactly as it would
+# have. That is why nothing here validates the file — a wrong guess costs one comparison.
+_PERSIST_NAME = ".scale_cache.json"
+_PERSIST_LIMIT = 400          # a bound, not a tuning knob; see _save_persisted
+_persist_enabled = True
+_persist_loaded = False
+
+
+def set_persistence(enabled: bool) -> None:
+    """Turn the on-disk cache off, for tests.
+
+    The suite must not read the developer's cached scales or write to their data
+    directory: a test that matched would then behave differently on the machine that
+    had already run the app, which is the kind of flake that gets blamed on the matcher.
+    """
+    global _persist_enabled, _persist_loaded
+    _persist_enabled = enabled
+    _persist_loaded = not enabled
+
+
+def _persist_path():
+    return data_root() / _PERSIST_NAME
+
+
+def _load_persisted() -> None:
+    """Read the cache once per process. Never raises: a corrupt file is not worth a
+    crash when the cost of ignoring it is one rediscovery."""
+    global _persist_loaded
+    if _persist_loaded or not _persist_enabled:
+        return
+    _persist_loaded = True
+    try:
+        data = json.loads(_persist_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    scales = data.get("scales")
+    if not isinstance(scales, dict):
+        return
+    with _scale_lock:
+        for raw, value in scales.items():
+            try:
+                path, width, height = raw.rsplit("|", 2)
+                scale = float(value)
+                key = (path, int(width), int(height))
+            except (ValueError, TypeError):
+                continue
+            if scale <= 0:
+                continue
+            _scale_cache.setdefault(key, scale)
+            if scale != 1.0:
+                _window_scale.setdefault(key[1:], scale)
+
+
+def _save_persisted() -> None:
+    """Write the cache out. Called after a discovery, which happens once per template
+    per window size — so this is rare enough not to need batching."""
+    if not _persist_enabled:
+        return
+    with _scale_lock:
+        items = list(_scale_cache.items())
+    # Bounded so a user who resizes constantly cannot grow this without limit. The
+    # newest entries are the ones worth keeping: dict order is insertion order, and the
+    # oldest window size is the one least likely to come back.
+    if len(items) > _PERSIST_LIMIT:
+        items = items[-_PERSIST_LIMIT:]
+    payload = {"scales": {f"{path}|{w}|{h}": scale for (path, w, h), scale in items}}
+    try:
+        path = _persist_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    except OSError:
+        pass                  # a cache that cannot be written is still a working matcher
+
 
 class Match(tuple):
     """``(cx, cy, score)`` with the size the template actually matched at attached.
@@ -329,6 +421,9 @@ def _record_scale(key: tuple, scale: float) -> None:
         _scale_cache[key] = scale
         if scale != 1.0:
             _window_scale[key[1:]] = scale
+    # Outside the lock: this touches the disk, and holding the lock across I/O would
+    # stall every concurrent macro's matching for the duration.
+    _save_persisted()
 
 
 # ── per-tick frame sharing ────────────────────────────────────────────────────
@@ -667,6 +762,7 @@ def _scale_order(key: tuple) -> List[float]:
     """Scales worth trying cheaply, best guess first: this template's known
     scale, then whatever scale the window is known to run at, then the size the
     template was captured at."""
+    _load_persisted()
     with _scale_lock:
         guesses = (_scale_cache.get(key), _window_scale.get(key[1:]), 1.0)
     order = []
