@@ -204,46 +204,55 @@ def _walk_image_waits(actions):
                 yield from _walk_image_waits(a[key])
 
 
-def test_both_raids_share_one_panel_budget():
-    """They are the same `try_cells`, and a number measured once should not drift into
-    two numbers by being written twice."""
-    budgets = set()
-    for name, macro in macros():
+def test_each_raid_gets_the_budget_its_own_panel_needs():
+    """I wrote the opposite of this a few hours earlier.
+
+    That test asserted both raids share one budget, on the reasoning that a number
+    measured once should not drift into two by being written twice. The reasoning was
+    fine; the premise was wrong. The 900 ms came from timing the *Individual* panel
+    twice (506 and 512 ms) and applying it to both.
+
+    Measured on a live guild list by watching the macro drive it, with no input of my
+    own: the gap between one panel closing and the next being drawn ran 580, 627, 1100
+    and 1197 ms. Two of four past 900 — and the failure was total, not partial: over 45 s
+    the panels opened and closed, `guild_progress` never left the screen, and not one
+    battle started. A guild member's panel loads another player's defence team; an
+    Individual target is local.
+    """
+    budgets = {}
+    for _name, macro in macros():
         for wait in _walk_image_waits(macro["actions"]):
             if "attack" in wait["template"]:
-                budgets.add((wait["timeout_ms"], wait["poll_ms"]))
-    assert budgets == {(900, 100)}, budgets
+                budgets.setdefault(macro["name"], set()).add(
+                    (wait["timeout_ms"], wait["poll_ms"]))
+
+    for name, seen in budgets.items():
+        assert len(seen) == 1, f"{name} uses more than one budget: {seen}"
+
+    individual = budgets[_by_name("individual")["name"]].pop()
+    guild = budgets[_by_name("guild")["name"]].pop()
+    assert individual == (900, 100)
+    assert guild == (1500, 100), "the guild panel is slower, and measurably so"
 
 
-def test_the_guild_list_covers_every_row_the_panel_draws():
-    """It covered three rows of four for as long as it existed.
+def test_a_panel_already_open_is_attacked_before_any_cell_is_clicked():
+    """The bug this fixes made the macro attack from none of the panels it opened.
 
-    The generator said "the fourth is clipped by the panel edge", and that was simply
-    wrong: drawn onto a live guild list at 1810x1020, all four rows sit fully inside the
-    panel and the fourth row's members are ordinary targets. Two of the eight visible
-    members were being skipped on every sweep.
+    A panel drawn later than its budget stays on screen for the rest of the tick and the
+    loop delay — measured at 6-7 s — and the next tick's first cell click threw it away
+    unseen. So the chain now opens with a look for Attack: one search, no click when
+    there is nothing there, and a late panel becomes an attack on the next tick instead
+    of a wasted one. It is the only part of this that does not depend on guessing a
+    timeout correctly.
     """
-    guild = _by_name("guild")
-
-    def cell_clicks(actions):
-        out = []
-        for a in actions:
-            if a["type"] == "click" and "xp" in a and "yp" in a:
-                out.append((round(a["xp"], 4), round(a["yp"], 4)))
-            for key in ("on_found", "on_not_found"):
-                if a.get(key):
-                    out.extend(cell_clicks(a[key]))
-        return out
-
-    body = guild["actions"][-1]["on_found"]
-    cells = cell_clicks(body)
-    assert len(cells) == 8, f"expected two columns of four, got {len(cells)}: {cells}"
-
-    columns = sorted({x for x, _ in cells})
-    rows = sorted({y for _, y in cells})
-    assert len(columns) == 2 and len(rows) == 4, (columns, rows)
-
-    # Evenly pitched, because the fourth row is the pitch projected once rather than a
-    # separate reading — if that ever stops holding, the projection was wrong.
-    gaps = [round(b - a, 4) for a, b in zip(rows, rows[1:])]
-    assert max(gaps) - min(gaps) < 0.002, f"rows are not evenly spaced: {gaps}"
+    for _name, macro in macros():
+        if "raid" not in macro["name"].lower():
+            continue
+        body = macro["actions"][-1]["on_found"]
+        first = body[0]
+        assert first["type"] == "find_and_click", (
+            f"{macro['name']}: the cell chain should start by taking an open panel, "
+            f"not with {first['type']}")
+        assert first["template"].endswith("onmyoji_realmraid_attack.png")
+        # And it must not click a cell to find that out.
+        assert first.get("on_not_found"), "the cells belong in its on_not_found"

@@ -74,7 +74,22 @@ TAP_THRESHOLD = 0.70
 # measure when the template is already on screen. The real fix is not a shorter wait but
 # recognising the KO stamp, so a dead cell costs one match instead of a timeout; that
 # needs `image_check` to accept a region, which it does not.
-PANEL_BUDGET_MS = 900
+# 900 ms is right for the Individual list and WRONG for the Guild one, which is why
+# this is a per-macro argument now and not one shared constant.
+#
+# Measured a second time, on a live guild list, by watching the macro drive it with no
+# input of my own: the gap between one panel closing and the next being drawn ran 580,
+# 627, 1100 and 1197 ms. Two of those four are past 900, and the failure is total rather
+# than partial — every cell click dismisses the panel that was still drawing, so the
+# macro never looks at a panel during the window it is open. Observed for 45 s straight:
+# panels opening and closing, `guild_progress` never once leaving the screen, not one
+# battle started. A plain posted click on that same Attack button started a battle
+# immediately, which is what ruled out the template, the coordinate and the input method.
+#
+# The Individual panel is a local target; a guild member's is another player's defence
+# team, and it shows. 1500 covers the slowest seen with a sample to spare at poll=100.
+PANEL_BUDGET_INDIVIDUAL_MS = 900
+PANEL_BUDGET_GUILD_MS = 1500
 PANEL_POLL_MS = 100
 
 def frac(x, y):
@@ -224,7 +239,7 @@ def only_on_list(list_template, actions):
              "threshold": 0.8, "on_found": actions}]
 
 
-def try_cells(cells, exhausted, post_attack):
+def try_cells(cells, exhausted, post_attack, budget_ms=PANEL_BUDGET_INDIVIDUAL_MS):
     """Click each cell in turn until one opens a panel with an Attack button.
 
     Built from the inside out, so `exhausted` runs only after every cell has been
@@ -251,13 +266,23 @@ def try_cells(cells, exhausted, post_attack):
             click(x, y),
             {"type": "image_wait",
              "template": "templates/onmyoji_realmraid_attack.png",
-             "threshold": 0.8, "timeout_ms": PANEL_BUDGET_MS,
+             "threshold": 0.8, "timeout_ms": budget_ms,
              "poll_ms": PANEL_POLL_MS},
             find_click("onmyoji_realmraid_attack.png",
                        on_found=post_attack,
                        on_not_found=chain),
         ]
-    return chain
+    # Take a panel that is already open before clicking anything.
+    #
+    # A panel drawn later than its budget stays on screen through the rest of the tick
+    # and the loop delay — measured at 6-7 s — and the next tick's first cell click threw
+    # it away unseen. So a run could open eight panels a tick and attack from none of
+    # them. One search, no click when there is nothing there, and it turns a wasted tick
+    # into an attack on the next one. It is also the only part of this that does not
+    # depend on guessing a timeout correctly.
+    return [find_click("onmyoji_realmraid_attack.png",
+                       on_found=post_attack,
+                       on_not_found=chain)]
 
 
 # ── Individual: a fixed 3x3 grid, with a Refresh button when it is used up ─────
@@ -380,6 +405,7 @@ guild = {
         ]
         + only_on_list("onmyoji_realmraid_guild_progress.png", try_cells(
             GUILD_MEMBERS,
+            budget_ms=PANEL_BUDGET_GUILD_MS,
             # No Refresh here: every visible member is done. Say nothing and let the
             # next tick look again — a member's guardians are reset by other players'
             # progress, so one exhausted tick is not proof the run is over, which is why
