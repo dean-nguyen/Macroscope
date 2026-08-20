@@ -253,6 +253,32 @@ def _sync_templates(src_dir: Path, dest_dir: Path, seeded: dict):
     return added, updated, diverged
 
 
+# Which window a macro drives is the user's, everything else in it is the pack's.
+#
+# The window picker writes these four, so pinning a macro — a required step, not an
+# optional tweak — changed the file and made seeding call it "edited". Measured on this
+# machine: both Realm Raid macros read DIVERGED and were being left alone, so a day of
+# fixes to the pack would never have reached the macros actually being run. That is the
+# same failure as "a macro seeded once stayed at that version forever", wearing a
+# different cause.
+#
+# `target_window` and `target_class` are in here with the other two because the picker
+# rewrites them to what it found — the real title, which is localised — and that reading
+# is more specific than the pack's pattern. The cost is that a pack cannot correct a
+# targeting field for someone who has already picked a window; the benefit is that
+# picking a window does not cost them every future fix.
+_PIN_FIELDS = ("target_window", "target_class", "target_position", "target_hwnd")
+
+
+def _without_pins(macro: dict) -> dict:
+    return {k: v for k, v in macro.items() if k not in _PIN_FIELDS}
+
+
+def _body_digest(macro: dict) -> str:
+    """A hash of everything except which window it points at."""
+    return _digest(json.dumps(_without_pins(macro), indent=2, sort_keys=True))
+
+
 def _sync_macros(src_dir: Path, dest_dir: Path, seeded: dict):
     """Add, update or leave each pack macro. Mutates *seeded* with what was written."""
     added, updated, diverged = [], [], []
@@ -270,8 +296,7 @@ def _sync_macros(src_dir: Path, dest_dir: Path, seeded: dict):
         if not name:
             continue
 
-        text = json.dumps(data, indent=2)
-        digest = _digest(text)
+        digest = _body_digest(data)
         target = dest_dir / f"{name}.json"
         known = seeded.get(name)
 
@@ -279,19 +304,28 @@ def _sync_macros(src_dir: Path, dest_dir: Path, seeded: dict):
             # Never offered, or the user deleted it. Only the first is ours to fix.
             if known is not None:
                 continue
-            target.write_text(text, encoding="utf-8")
+            target.write_text(json.dumps(data, indent=2), encoding="utf-8")
             seeded[name] = digest
             added.append(name)
             continue
 
         try:
-            current = _digest(target.read_text(encoding="utf-8"))
-        except OSError:
+            installed = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             continue
+        if not isinstance(installed, dict):
+            continue
+
+        current = _body_digest(installed)
+        # The pack's macro, keeping whichever window the user pointed it at.
+        merged = json.dumps({**data,
+                             **{k: installed[k] for k in _PIN_FIELDS
+                                if k in installed}}, indent=2)
+
         if current == digest:
             seeded[name] = digest        # already current; just record it
         elif known is not None and current == known:
-            target.write_text(text, encoding="utf-8")   # untouched since we wrote it
+            target.write_text(merged, encoding="utf-8")  # untouched since we wrote it
             seeded[name] = digest
             updated.append(name)
         else:
