@@ -309,10 +309,25 @@ individual = {
 # ── Guild: a scrolling two-column member list, no Refresh ─────────────────────
 
 MEMBER_X = [560, 892]
-# Only the three fully visible rows. The fourth is clipped by the panel edge, and
-# reaching the rest of the list needs a scroll, which this input method has not been
-# shown to do in this game (see the open questions in docs/BACKLOG.md).
-MEMBER_Y = [195, 328, 460]
+# Four rows, not three. This said "the fourth is clipped by the panel edge" and that was
+# simply wrong: measured against a live guild list at 1810x1020, all four rows are fully
+# drawn inside the panel and the fourth row's members are ordinary attackable targets.
+# The macro had been ignoring two of the eight visible members on every sweep.
+#
+# The fourth y is the existing pitch projected once (460 + 132.5), not a fresh reading:
+# the three known rows are 132.5 apart in reference coords, so 592 is where the next one
+# has to be — and drawn onto the live frame it lands squarely inside both cards. Keeping
+# the first three untouched matters, because those are the ones live runs have validated;
+# recentring them to look tidier would risk what already works.
+#
+# A fifth row would need a scroll, which this input method has not been shown to do in
+# this game (see the open questions in docs/BACKLOG.md), and the panel's inner edge sits
+# just below the fourth row anyway.
+#
+# The cost of the two extra cells is 1.8s on a tick where every member is already done
+# (2 x PANEL_BUDGET_MS) and nothing when one of them is attackable. Coverage is the point
+# of the macro, and the exhausted case now ends on a two-minute clock regardless.
+MEMBER_Y = [195, 328, 460, 592]
 GUILD_MEMBERS = [(x, y) for y in MEMBER_Y for x in MEMBER_X]
 
 TAB_GUILD = (1193, 447)
@@ -322,7 +337,7 @@ guild = {
     "description": (
         "Raid the Guild member list: selects the Guild tab, opens each visible member "
         "in turn and attacks the first that offers an Attack button, then clears the "
-        "result. Covers the six members visible without scrolling — the guild list "
+        "result. Covers the eight members visible without scrolling — the guild list "
         "scrolls and this input method has not been shown to scroll it. Ends when no "
         "member offers an Attack button for two minutes, which is what finished looks "
         "like here: after 09:00 Vietnam time the guild raid stops counting wins, the "

@@ -213,3 +213,37 @@ def test_both_raids_share_one_panel_budget():
             if "attack" in wait["template"]:
                 budgets.add((wait["timeout_ms"], wait["poll_ms"]))
     assert budgets == {(900, 100)}, budgets
+
+
+def test_the_guild_list_covers_every_row_the_panel_draws():
+    """It covered three rows of four for as long as it existed.
+
+    The generator said "the fourth is clipped by the panel edge", and that was simply
+    wrong: drawn onto a live guild list at 1810x1020, all four rows sit fully inside the
+    panel and the fourth row's members are ordinary targets. Two of the eight visible
+    members were being skipped on every sweep.
+    """
+    guild = _by_name("guild")
+
+    def cell_clicks(actions):
+        out = []
+        for a in actions:
+            if a["type"] == "click" and "xp" in a and "yp" in a:
+                out.append((round(a["xp"], 4), round(a["yp"], 4)))
+            for key in ("on_found", "on_not_found"):
+                if a.get(key):
+                    out.extend(cell_clicks(a[key]))
+        return out
+
+    body = guild["actions"][-1]["on_found"]
+    cells = cell_clicks(body)
+    assert len(cells) == 8, f"expected two columns of four, got {len(cells)}: {cells}"
+
+    columns = sorted({x for x, _ in cells})
+    rows = sorted({y for _, y in cells})
+    assert len(columns) == 2 and len(rows) == 4, (columns, rows)
+
+    # Evenly pitched, because the fourth row is the pitch projected once rather than a
+    # separate reading — if that ever stops holding, the projection was wrong.
+    gaps = [round(b - a, 4) for a, b in zip(rows, rows[1:])]
+    assert max(gaps) - min(gaps) < 0.002, f"rows are not evenly spaced: {gaps}"
