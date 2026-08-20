@@ -42,7 +42,9 @@ from or scores too close to a template you already have.
 | `onmyoji_realmraid_refresh.png` | Realm Raid → **Refresh**, bottom right | Also the "am I on the Individual list" marker — it exists nowhere else. |
 | `onmyoji_realmraid_guild_progress.png` | Realm Raid → **Guild** tab → the red **Raid Progress** banner, left panel | The Guild list has no Refresh, so this is its equivalent marker. |
 | `onmyoji_dialog_ok.png` | Realm Raid → **Refresh** → the **OK** on "Raid log progress will be reset…" | The standard confirm scroll, reused across the game. Without it the macro presses Refresh forever and never refreshes anything. |
-| `onmyoji_reward_confirm.png` | Finish any fight → **Tap to continue** at the bottom | Needs one real battle. Both macros clear every result screen with it, on a win and a loss alike. |
+| `onmyoji_reward_confirm.png` | Finish any fight → **Tap to continue** at the bottom | Needs one real battle. Every macro clears every result screen with it, on a win and a loss alike. |
+| `onmyoji_souls_challenge.png` | Souls → **Sougenbi** → **Foolery** → the **Challenge** button, bottom right | **Ships with the pack.** Crop the **word**, not the diamond around it and not the `x1` cost under it: the diamond is shared chrome and the number changes. |
+| `onmyoji_souls_foolery.png` | The same screen → the **Foolery** label in the sidebar, **selected** | **Ships with the pack.** The 'am I on the right gate' marker. Capture it *selected* — see below. |
 
 ## Capture these when you happen to see them
 
@@ -55,6 +57,7 @@ missing at the start of every run.
 |---|---|---|---|
 | `onmyoji_captcha.png` | A verification screen appears | its distinctive artwork/text | **STOPS the macro.** Until captured it protects nothing — but the engine's stall guard stops a macro that clicks without recognising anything for five minutes, so this is no longer the only backstop. |
 | `onmyoji_no_attempts.png` | Realm Raid tickets run out | the message text | Stops Realm Raid (Individual) |
+| `onmyoji_no_stamina.png` | You press Challenge on a Souls gate with nothing left to pay with | the message text | Stops the Souls macro |
 | `onmyoji_guild_no_wins.png` | Guild raid daily wins run out | the message text | Stops Realm Raid (Guild). The Guild tab counts `Win(s): n/6` separately from the ticket counter — and that number is wins **remaining**, not used. |
 | `onmyoji_inventory_full.png` | Storage fills up | the message text | Stops so you can clear space |
 | `onmyoji_level_up.png` | A shikigami levels up | the **banner/title**, not the OK | Makes the macro look for something it can dismiss |
@@ -78,6 +81,20 @@ Until it is captured, an invitation that covers the target list simply stalls th
 macro — it clicks nothing — and one that leaves the list visible may take a grid
 click meant for a target.
 
+### The Foolery marker must be captured *selected*
+
+Sougenbi has three gates — Greed, Anger and Foolery — and **all three put a Challenge
+button in the same place**. So a marker that matched any of them would happily farm the
+wrong gate for an hour.
+
+Unselected, "Foolery" is pale text on the same parchment as its neighbours. Selected, it
+sits on a red brush stroke. Only the selected state distinguishes *which* gate you are
+on, which is why the macro's screen check uses it and why it has to be captured with
+Foolery highlighted.
+
+The same crop doubles as "am I still on the Souls screen at all", so a fight, a loading
+screen or an unanswered dialog all read as "not on the gate" and nothing is pressed.
+
 ### Do not capture a "Challenge Again"
 
 The English client shows none after a win — it returns to the activity screen. It
@@ -96,6 +113,9 @@ middle of the defeat screen is that panel. They click only what they can see.
 - **Realm Raid (Guild):** realmraid_attack, realmraid_guild_progress,
   realmraid_refresh (to find the tab from the Individual list), reward_confirm,
   guild_no_wins + the same resilience set
+- **Souls (Sougenbi, Foolery):** souls_challenge, souls_foolery, reward_confirm,
+  no_stamina + the same resilience set. Two templates and one button — it needs less
+  than either raid because the screen gives it less to get wrong.
 
 The "resilience set" is captcha, inventory_full, level_up, defeat, reconnect_retry
 and wanted_quest_decline — every one of them opportunistic, and every one a

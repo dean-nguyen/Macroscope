@@ -1,0 +1,158 @@
+{
+  "name": "Onmyoji - Souls (Sougenbi, Foolery)",
+  "description": "Farm the Sougenbi Foolery soul gate: presses Challenge, lets the fight run, clears the result screen, repeats. Only acts while the Foolery gate is selected and on screen, so it cannot farm Greed or Anger by mistake. STOPS on a verification screen, a full inventory, or when stamina runs out. Start it ON the Souls screen with Sougenbi -> Foolery selected, your lineup deployed and Auto battle ON.",
+  "background": true,
+  "target_window": "Onmyoji",
+  "target_class": "Win32Window",
+  "loop": true,
+  "loop_delay_ms": 2500,
+  "actions": [
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_captcha.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_inventory_full.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_no_stamina.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "stop"
+        }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_reconnect_retry.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_wanted_quest_decline.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_level_up.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_dialog_ok.png",
+          "threshold": 0.8,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 1200
+            }
+          ],
+          "on_not_found": []
+        },
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_reward_confirm.png",
+          "threshold": 0.7,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 1200
+            }
+          ],
+          "on_not_found": []
+        }
+      ]
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_defeat.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_dialog_ok.png",
+          "threshold": 0.8,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 1200
+            }
+          ],
+          "on_not_found": []
+        },
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_reward_confirm.png",
+          "threshold": 0.7,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 1200
+            }
+          ],
+          "on_not_found": []
+        }
+      ]
+    },
+    {
+      "type": "find_and_click",
+      "template": "templates/onmyoji_reward_confirm.png",
+      "threshold": 0.7,
+      "on_found": [
+        {
+          "type": "wait",
+          "ms": 1200
+        }
+      ],
+      "on_not_found": []
+    },
+    {
+      "type": "image_check",
+      "template": "templates/onmyoji_souls_foolery.png",
+      "threshold": 0.8,
+      "on_found": [
+        {
+          "type": "find_and_click",
+          "template": "templates/onmyoji_souls_challenge.png",
+          "threshold": 0.8,
+          "on_found": [
+            {
+              "type": "wait",
+              "ms": 12000
+            }
+          ],
+          "on_not_found": []
+        }
+      ]
+    }
+  ]
+}

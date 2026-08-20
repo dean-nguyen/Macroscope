@@ -328,6 +328,54 @@ guild = {
     ),
 }
 
+# ── Souls: one gate, one button, and the result screen the raids already clear ──
+#
+# Far simpler than either raid, and the simplicity is the point: there is no target
+# grid, nothing to scroll, and no per-target popup. A tick either sees the gate screen
+# and presses Challenge, or sees nothing it understands and presses nothing.
+#
+# Everything about clearing the aftermath is already in `preamble`: reward_confirm
+# ("Tap to continue") ends a win and a loss alike, and dismiss() handles a level-up.
+# So the body is one conditional click.
+#
+# The gate marker is the *selected* "Foolery" label, and it has to be the selected one.
+# Unselected, the same word is pale text on the same parchment; selected, it sits on a
+# red brush stroke. Only the selected state can tell "I am on Foolery" from "I am on
+# Greed" — and Greed, Anger and Foolery all offer a Challenge button in the same place,
+# so a marker that matched any of them would happily farm the wrong gate.
+
+souls_foolery = {
+    "name": "Onmyoji - Souls (Sougenbi, Foolery)",
+    "description": (
+        "Farm the Sougenbi Foolery soul gate: presses Challenge, lets the fight run, "
+        "clears the result screen, repeats. Only acts while the Foolery gate is "
+        "selected and on screen, so it cannot farm Greed or Anger by mistake. STOPS on "
+        "a verification screen, a full inventory, or when stamina runs out. Start it ON "
+        "the Souls screen with Sougenbi -> Foolery selected, your lineup deployed and "
+        "Auto battle ON."
+    ),
+    "background": True,
+    "target_window": "Onmyoji",
+    "target_class": "Win32Window",
+    "loop": True,
+    "loop_delay_ms": 2500,
+    "actions": preamble("onmyoji_no_stamina.png") + only_on_list(
+        "onmyoji_souls_foolery.png",
+        [
+            # Pressing Challenge is the whole macro. It is inside the gate check, so a
+            # tick that lands mid-battle or on an unanswered dialog presses nothing.
+            #
+            # The wait is long because it has to outlast a fight, and it costs nothing
+            # to be generous: the tick that follows finds the result screen through
+            # `preamble` whether it arrived early or late. A short wait would have the
+            # macro press Challenge again while the previous fight is still resolving,
+            # which is how a run spends two lots of stamina on one screen.
+            find_click("onmyoji_souls_challenge.png",
+                       on_found=[wait(12000)]),
+        ],
+    ),
+}
+
 
 def depth(actions, level=0):
     """How deep the nesting goes, so the cost of the chain is visible."""
@@ -342,7 +390,8 @@ def depth(actions, level=0):
 from engine.macro_engine import _validate
 
 for macro, filename in ((individual, "realm-raid-individual.macro.json"),
-                        (guild, "realm-raid-guild.macro.json")):
+                        (guild, "realm-raid-guild.macro.json"),
+                        (souls_foolery, "souls-sougenbi-foolery.macro.json")):
     _validate(macro)                      # refuse to write something that will not load
     path = PACK / filename
     path.write_text(json.dumps(macro, indent=2, ensure_ascii=False) + "\n",
