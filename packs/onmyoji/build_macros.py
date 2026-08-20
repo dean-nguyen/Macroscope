@@ -41,6 +41,26 @@ PACK = ROOT / "packs" / "onmyoji"
 TAP_THRESHOLD = 0.70
 
 
+# How long a cell click is given to open its target panel, and the single number that
+# decides how fast a raid tick is. Measured from the generated macro rather than guessed:
+#
+#   Individual, 9 cells, every one already defeated → 13.5 s of a 16.0 s tick, 63 captures
+#   Guild,      6 cells, same                       → 10.2 s of a 12.7 s tick, 42 captures
+#
+# A defeated target opens nothing, so it pays the whole budget — and the chain has no
+# memory, so a cell found dead on one tick is charged the same again on the next. Late in
+# a sweep almost every cell is dead, which is when the macro feels slowest.
+#
+# The costs are asymmetric, and that is the argument for a smaller number: a budget that
+# is too short misses a live panel and costs *one more tick*, while a budget that is too
+# long costs its full length on *every dead cell, every tick*. But the number that makes
+# it safe is how quickly a live panel actually draws, and that has never been measured —
+# `python tools/game_probe.py --title Onmyoji settle 291 203 onmyoji_realmraid_attack.png`
+# answers it. A guessed settle was added here once on a theory about panel animation,
+# could not be confirmed, and was removed; guessing it downwards deserves the same bar.
+PANEL_BUDGET_MS = 1500
+PANEL_POLL_MS = 200
+
 def frac(x, y):
     return {"xp": round(x / W, 4), "yp": round(y / H, 4)}
 
@@ -215,7 +235,8 @@ def try_cells(cells, exhausted, post_attack):
             click(x, y),
             {"type": "image_wait",
              "template": "templates/onmyoji_realmraid_attack.png",
-             "threshold": 0.8, "timeout_ms": 1500, "poll_ms": 200},
+             "threshold": 0.8, "timeout_ms": PANEL_BUDGET_MS,
+             "poll_ms": PANEL_POLL_MS},
             find_click("onmyoji_realmraid_attack.png",
                        on_found=post_attack,
                        on_not_found=chain),

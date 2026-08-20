@@ -225,6 +225,56 @@ def cmd_click(args):
     capture(args.title)
 
 
+def cmd_settle(args):
+    """Click somewhere, then time how long a template takes to appear.
+
+    This is the measurement behind every settle constant in a pack, and the pack has
+    already been burned by *guessing* one: a 600 ms wait was added on a theory about
+    panel animation, could not be confirmed, and was removed. Guessing the other way is
+    just as expensive — `try_cells` waits up to 1500 ms per cell for a target panel, and
+    a cell that is already defeated opens nothing, so it pays the whole budget. Nine
+    dead cells is 13.5 s of a 16.0 s tick, every tick, because the chain has no memory
+    of which cells it already found dead.
+
+    So: post one click, sample at *interval* until the template matches or the budget
+    runs out, and print when it first crossed the threshold. Run it several times — one
+    number is an anecdote, and what a timeout has to cover is the slow end.
+
+    Reports "never" as a real answer. That is what a dead cell looks like, and knowing
+    the budget was paid for nothing is the point.
+    """
+    from engine import background_input as bi, image_matcher as im
+    hwnd, _ = find_window(args.title)
+    ensure_shown(hwnd)
+
+    ref = args.template if "/" in args.template else f"templates/{args.template}"
+    im.clear_scale_cache()
+    with im.unrationed_discovery():        # a report must not be rationed, see CLAUDE.md
+        bi.post_click(hwnd, args.x, args.y)
+        start = time.time()
+        first = None
+        samples = []
+        while (elapsed := time.time() - start) < args.budget:
+            found = im.find_template(ref, hwnd=hwnd, threshold=args.threshold)
+            samples.append((elapsed, None if not found else found[2]))
+            if found and first is None:
+                first = elapsed
+                break
+            time.sleep(args.interval)
+
+    print(f"clicked ({args.x},{args.y}), watching {ref} at threshold {args.threshold}")
+    for elapsed, score in samples:
+        mark = "MATCH" if score and score >= args.threshold else "     "
+        shown = "-" if score is None else f"{score:.3f}"
+        print(f"  +{elapsed * 1000:6.0f} ms  {mark}  best {shown}")
+    if first is None:
+        print(f"  never appeared within {args.budget:.1f}s — which is what a dead cell "
+              f"looks like, and the whole budget was spent finding that out")
+    else:
+        print(f"  appeared after {first * 1000:.0f} ms "
+              f"({len(samples)} samples at {args.interval * 1000:.0f} ms)")
+
+
 def cmd_watch(args):
     """Capture a timed sequence and report how much each frame differs from the
     previous one — how to find a transient screen without eyeballing every frame."""
@@ -298,6 +348,15 @@ def build_parser():
     p.add_argument("--hold", type=float, default=0.0,
                    help="hold the button this long (for UIs that drop instant clicks)")
     p.set_defaults(fn=cmd_click)
+
+    p = sub.add_parser("settle",
+                       help="click, then time how long a template takes to appear")
+    p.add_argument("x", type=int); p.add_argument("y", type=int)
+    p.add_argument("template", help="e.g. onmyoji_realmraid_attack.png")
+    p.add_argument("--threshold", type=float, default=0.8)
+    p.add_argument("--interval", type=float, default=0.05)
+    p.add_argument("--budget", type=float, default=3.0)
+    p.set_defaults(fn=cmd_settle)
 
     p = sub.add_parser("watch", help="capture a timed sequence with change scores")
     p.add_argument("count", type=int, nargs="?", default=12)
