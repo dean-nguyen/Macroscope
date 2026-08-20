@@ -58,7 +58,7 @@ missing at the start of every run.
 | `onmyoji_captcha.png` | A verification screen appears | its distinctive artwork/text | **STOPS the macro.** Until captured it protects nothing — but the engine's stall guard stops a macro that clicks without recognising anything for five minutes, so this is no longer the only backstop. |
 | `onmyoji_no_attempts.png` | Realm Raid tickets run out | the message text | Stops Realm Raid (Individual) |
 | `onmyoji_no_stamina.png` | You press Challenge on a Souls gate with nothing left to pay with | the message text | Stops the Souls macro |
-| `onmyoji_guild_no_wins.png` | Guild raid daily wins run out | the message text | Stops Realm Raid (Guild). The Guild tab counts `Win(s): n/6` separately from the ticket counter — and that number is wins **remaining**, not used. |
+| `onmyoji_guild_no_wins.png` | Guild raid daily wins run out — **may never appear** | the message text | Nothing depends on it. After 09:00 Vietnam time the guild raid stops *counting* wins instead of blocking: the crest reads 'Raided', the counter stops moving, and you keep attacking until nothing is left. So the Guild macro ends when no member has offered an Attack button for two minutes, not on this popup. The `Win(s): n/6` on that tab is wins **remaining**, not used. |
 | `onmyoji_inventory_full.png` | Storage fills up | the message text | Stops so you can clear space |
 | `onmyoji_level_up.png` | A shikigami levels up | the **banner/title**, not the OK | Makes the macro look for something it can dismiss |
 | `onmyoji_defeat.png` | You lose a fight | the **Failed** banner, not the panel below | Same — the loss is then cleared like any other result |

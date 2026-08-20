@@ -136,3 +136,80 @@ def test_the_macros_match_what_the_generator_produces(tmp_path):
                    capture_output=True)
     after = {p.name: p.read_text(encoding="utf-8") for p in PACK.glob("*.macro.json")}
     assert before == after, "a shipped macro differs from what the generator produces"
+
+
+# ── what is true of the Guild macro and nothing else ──────────────────────────
+
+def _by_name(fragment):
+    for name, macro in macros():
+        if fragment.lower() in macro["name"].lower():
+            return macro
+    raise AssertionError(f"no pack macro named like {fragment!r}")
+
+
+def test_the_guild_run_ends_on_its_own_clock():
+    """The Guild list has no Refresh and no reliable "no wins left" popup.
+
+    After 09:00 Vietnam time the guild raid stops *counting* wins — the crest reads
+    "Raided", the counter stops moving, and you keep attacking until nothing is left. So
+    `guild_no_wins` may never appear, and "no member offers an Attack button" is what
+    finished actually looks like. The stall guard's condition is clicking without
+    recognising anything, which is exactly that state, so the guard is the end of the run
+    here rather than a symptom — and five minutes of it is four minutes of sitting still.
+    """
+    guild = _by_name("guild")
+    assert guild["stall_timeout_ms"] == 120000
+    from engine.macro_engine import _validate
+    _validate(guild)          # checked at load, so a typo must fail here too
+
+    individual = _by_name("individual")
+    assert "stall_timeout_ms" not in individual, (
+        "the Individual list has Refresh and a real no-attempts popup, so it has a "
+        "cheaper end condition and should keep the default")
+
+
+def test_the_exhausted_branch_waits_for_nothing():
+    """It is paid on exactly the ticks that feel slowest.
+
+    A tick where no member offers an Attack button has nothing to settle — no panel
+    opened, no transition started. The 1200 ms that used to sit here was 1.2 s of the
+    6.6 s such a tick spent blocking, and the loop delay already separates the ticks.
+    """
+    guild = _by_name("guild")
+
+    def exhausted_waits(actions):
+        """The deepest `on_not_found` chain is the "tried every cell" path."""
+        total = 0
+        for a in actions:
+            if a["type"] == "wait":
+                total += a["ms"]
+            if a.get("on_not_found"):
+                total += exhausted_waits(a["on_not_found"])
+        return total
+
+    body = guild["actions"][-1]["on_found"]
+    waits = exhausted_waits(body)
+    budget = sum(a["timeout_ms"] for a in _walk_image_waits(body))
+    assert waits == 0, (
+        f"a fully-raided list should block only on its panel budget ({budget} ms), "
+        f"not on {waits} ms of fixed sleeps")
+
+
+def _walk_image_waits(actions):
+    for a in actions:
+        if a["type"] == "image_wait":
+            yield a
+        for key in ("on_found", "on_not_found"):
+            if a.get(key):
+                yield from _walk_image_waits(a[key])
+
+
+def test_both_raids_share_one_panel_budget():
+    """They are the same `try_cells`, and a number measured once should not drift into
+    two numbers by being written twice."""
+    budgets = set()
+    for name, macro in macros():
+        for wait in _walk_image_waits(macro["actions"]):
+            if "attack" in wait["template"]:
+                budgets.add((wait["timeout_ms"], wait["poll_ms"]))
+    assert budgets == {(900, 100)}, budgets

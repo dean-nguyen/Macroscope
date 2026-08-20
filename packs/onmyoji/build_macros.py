@@ -323,9 +323,19 @@ guild = {
         "Raid the Guild member list: selects the Guild tab, opens each visible member "
         "in turn and attacks the first that offers an Attack button, then clears the "
         "result. Covers the six members visible without scrolling — the guild list "
-        "scrolls and this input method has not been shown to scroll it. STOPS on a "
-        "verification screen, a full inventory, or when the daily wins are used up."
+        "scrolls and this input method has not been shown to scroll it. Ends when no "
+        "member offers an Attack button for two minutes, which is what finished looks "
+        "like here: after 09:00 Vietnam time the guild raid stops counting wins, the "
+        "crest reads 'Raided', and you keep attacking until nothing is left. Also STOPS "
+        "on a verification screen or a full inventory. Start it ON the Realm Raid screen."
     ),
+    # Two minutes rather than the default five. The stall guard's condition — clicking
+    # without recognising anything — is exactly what "every visible member is done" looks
+    # like, so here it is not a symptom but the end of the run, and there is no cheaper
+    # signal: `guild_no_wins` may never appear at all, because after 09:00 VN the counter
+    # stops moving instead of blocking. Two minutes is about three exhausted ticks past
+    # the point of doubt, and short enough not to sit there.
+    "stall_timeout_ms": 120000,
     "background": True,
     "target_window": "Onmyoji",
     "target_class": "Win32Window",
@@ -357,8 +367,14 @@ guild = {
             GUILD_MEMBERS,
             # No Refresh here: every visible member is done. Say nothing and let the
             # next tick look again — a member's guardians are reset by other players'
-            # progress, and the stall guard stops a run that stays blind.
-            exhausted=[wait(1200)],
+            # progress, so one exhausted tick is not proof the run is over, which is why
+            # this ends on the stall guard's clock rather than immediately.
+            #
+            # And nothing to wait for: the 1200 ms that used to sit here settled nothing
+            # (there is no panel, no transition — the tick simply found nothing) while
+            # being paid on exactly the ticks that feel slowest. It was 1.2 s of the 6.6 s
+            # a fully-raided list spent blocking.
+            exhausted=[],
             # The guild progress banner is on the list screen and nowhere else.
             post_attack=after_attack("onmyoji_realmraid_guild_progress.png"),
         ))
