@@ -41,6 +41,57 @@ PACK = ROOT / "packs" / "onmyoji"
 TAP_THRESHOLD = 0.70
 
 
+# How long a cell click is given to open its target panel, and the single number that
+# decides how fast a raid tick is.
+#
+# MEASURED on a live 1810x1020 client, `game_probe settle`:
+#
+#   a live cell's Attack button appears after 506 ms and 512 ms (scores 0.961, 0.971)
+#   a defeated cell (KO stamp) never opens one — the whole budget buys nothing
+#   one failing full-frame search costs ~200 ms at this size; a succeeding one ~100 ms
+#
+# The poll loop is `search then sleep(poll_ms)`, so a cycle is search + poll, not poll.
+# At poll=200 the screen is sampled at ~0, 400, 800, 1200 ms: the 400 ms sample is too
+# early for a 510 ms panel, so it was not found until ~800. At poll=100 the samples fall
+# at ~0, 300, 600, 900 — so a live panel is found sooner *and* a dead cell stops sooner.
+#
+# 900 ms is 1.76x the slowest measured panel, with two samples after it. What it saves,
+# from the same count that showed the problem:
+#
+#   Individual, 9 cells, all defeated: 13.5s -> 8.1s   tick 16.0s -> 10.6s
+#   Guild,      6 cells, all defeated: 10.2s -> 6.6s   tick 12.7s ->  9.1s
+#
+# Guild keeps a 1.2s wait of its own for selecting the tab, which is why its blocking
+# time is 6.6s and not 6 x 0.9s. Recounted from the generated JSON rather than reasoned
+# about: the first version of this comment said 7.3s because it forgot that wait.
+#
+# A budget too short is recoverable and a budget too long is not: missing a live panel
+# costs one more tick, while overpaying costs the full budget on every dead cell, every
+# tick, forever. The chain has no memory, so a cell found dead is charged again next tick.
+#
+# Only two clean samples, and honestly so — the third was contaminated by the previous
+# target's panel still being open and read "0 ms", which is why the probe now refuses to
+# measure when the template is already on screen. The real fix is not a shorter wait but
+# recognising the KO stamp, so a dead cell costs one match instead of a timeout; that
+# needs `image_check` to accept a region, which it does not.
+# 900 ms is right for the Individual list and WRONG for the Guild one, which is why
+# this is a per-macro argument now and not one shared constant.
+#
+# Measured a second time, on a live guild list, by watching the macro drive it with no
+# input of my own: the gap between one panel closing and the next being drawn ran 580,
+# 627, 1100 and 1197 ms. Two of those four are past 900, and the failure is total rather
+# than partial — every cell click dismisses the panel that was still drawing, so the
+# macro never looks at a panel during the window it is open. Observed for 45 s straight:
+# panels opening and closing, `guild_progress` never once leaving the screen, not one
+# battle started. A plain posted click on that same Attack button started a battle
+# immediately, which is what ruled out the template, the coordinate and the input method.
+#
+# The Individual panel is a local target; a guild member's is another player's defence
+# team, and it shows. 1500 covers the slowest seen with a sample to spare at poll=100.
+PANEL_BUDGET_INDIVIDUAL_MS = 900
+PANEL_BUDGET_GUILD_MS = 1500
+PANEL_POLL_MS = 100
+
 def frac(x, y):
     return {"xp": round(x / W, 4), "yp": round(y / H, 4)}
 
@@ -158,12 +209,29 @@ def after_attack(list_template):
              # Polled often enough that the granularity is not itself a delay. Each
              # poll costs ~110 ms of matching on a 1917x1080 window, so 750 ms is
              # about a seventh of the time.
+             # 300 rather than 750: a poll costs ~200 ms of matching, so the cycle is
+             # search + poll and 750 made the granularity ~950 ms of pure lateness in
+             # noticing a screen that was already up. The 120 s timeout stays — it has
+             # to outlast a battle, measured at 14 s and 39 s in one sitting.
              {"type": "image_wait", "template": f"templates/{tap}",
-              "threshold": TAP_THRESHOLD, "timeout_ms": 120000, "poll_ms": 750},
-             find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1500)]),
+              "threshold": TAP_THRESHOLD, "timeout_ms": 120000, "poll_ms": 300},
+             # 900, not 1500. Measured on a live raid win: the second overlay was drawn
+             # **629 ms** after the first tap, so 1500 spent about 870 ms staring at a
+             # screen that had already changed.
+             find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(900)]),
              find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1000)]),
+             # 8 s, not 30. This is the same deadlock the 180 s version had, smaller:
+             # if there is a third overlay the taps are spent, the list *cannot* appear,
+             # and this waits out its whole timeout for a screen its own wait is
+             # preventing. Measured on two real wins, the list came back 3.85 s and 4.1 s
+             # after the last tap, so 8 s covers the good case twice over — and the bad
+             # case is now 8 s instead of 30.
+             #
+             # The real backstop is the next tick: `preamble` taps the line again every
+             # iteration, so an extra overlay costs one loop delay. That is what the
+             # docstring above always claimed and what the 30 s stopped from being true.
              {"type": "image_wait", "template": f"templates/{list_template}",
-              "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 600},
+              "threshold": 0.8, "timeout_ms": 8000, "poll_ms": 300},
          ]},
     ]
 
@@ -188,7 +256,7 @@ def only_on_list(list_template, actions):
              "threshold": 0.8, "on_found": actions}]
 
 
-def try_cells(cells, exhausted, post_attack):
+def try_cells(cells, exhausted, post_attack, budget_ms=PANEL_BUDGET_INDIVIDUAL_MS):
     """Click each cell in turn until one opens a panel with an Attack button.
 
     Built from the inside out, so `exhausted` runs only after every cell has been
@@ -215,12 +283,23 @@ def try_cells(cells, exhausted, post_attack):
             click(x, y),
             {"type": "image_wait",
              "template": "templates/onmyoji_realmraid_attack.png",
-             "threshold": 0.8, "timeout_ms": 1500, "poll_ms": 200},
+             "threshold": 0.8, "timeout_ms": budget_ms,
+             "poll_ms": PANEL_POLL_MS},
             find_click("onmyoji_realmraid_attack.png",
                        on_found=post_attack,
                        on_not_found=chain),
         ]
-    return chain
+    # Take a panel that is already open before clicking anything.
+    #
+    # A panel drawn later than its budget stays on screen through the rest of the tick
+    # and the loop delay — measured at 6-7 s — and the next tick's first cell click threw
+    # it away unseen. So a run could open eight panels a tick and attack from none of
+    # them. One search, no click when there is nothing there, and it turns a wasted tick
+    # into an attack on the next one. It is also the only part of this that does not
+    # depend on guessing a timeout correctly.
+    return [find_click("onmyoji_realmraid_attack.png",
+                       on_found=post_attack,
+                       on_not_found=chain)]
 
 
 # ── Individual: a fixed 3x3 grid, with a Refresh button when it is used up ─────
@@ -272,10 +351,25 @@ individual = {
 # ── Guild: a scrolling two-column member list, no Refresh ─────────────────────
 
 MEMBER_X = [560, 892]
-# Only the three fully visible rows. The fourth is clipped by the panel edge, and
-# reaching the rest of the list needs a scroll, which this input method has not been
-# shown to do in this game (see the open questions in docs/BACKLOG.md).
-MEMBER_Y = [195, 328, 460]
+# Four rows, not three. This said "the fourth is clipped by the panel edge" and that was
+# simply wrong: measured against a live guild list at 1810x1020, all four rows are fully
+# drawn inside the panel and the fourth row's members are ordinary attackable targets.
+# The macro had been ignoring two of the eight visible members on every sweep.
+#
+# The fourth y is the existing pitch projected once (460 + 132.5), not a fresh reading:
+# the three known rows are 132.5 apart in reference coords, so 592 is where the next one
+# has to be — and drawn onto the live frame it lands squarely inside both cards. Keeping
+# the first three untouched matters, because those are the ones live runs have validated;
+# recentring them to look tidier would risk what already works.
+#
+# A fifth row would need a scroll, which this input method has not been shown to do in
+# this game (see the open questions in docs/BACKLOG.md), and the panel's inner edge sits
+# just below the fourth row anyway.
+#
+# The cost of the two extra cells is 1.8s on a tick where every member is already done
+# (2 x PANEL_BUDGET_MS) and nothing when one of them is attackable. Coverage is the point
+# of the macro, and the exhausted case now ends on a two-minute clock regardless.
+MEMBER_Y = [195, 328, 460, 592]
 GUILD_MEMBERS = [(x, y) for y in MEMBER_Y for x in MEMBER_X]
 
 TAB_GUILD = (1193, 447)
@@ -285,10 +379,20 @@ guild = {
     "description": (
         "Raid the Guild member list: selects the Guild tab, opens each visible member "
         "in turn and attacks the first that offers an Attack button, then clears the "
-        "result. Covers the six members visible without scrolling — the guild list "
-        "scrolls and this input method has not been shown to scroll it. STOPS on a "
-        "verification screen, a full inventory, or when the daily wins are used up."
+        "result. Covers the eight members visible without scrolling — the guild list "
+        "scrolls and this input method has not been shown to scroll it. Ends when no "
+        "member offers an Attack button for two minutes, which is what finished looks "
+        "like here: after 09:00 Vietnam time the guild raid stops counting wins, the "
+        "crest reads 'Raided', and you keep attacking until nothing is left. Also STOPS "
+        "on a verification screen or a full inventory. Start it ON the Realm Raid screen."
     ),
+    # Two minutes rather than the default five. The stall guard's condition — clicking
+    # without recognising anything — is exactly what "every visible member is done" looks
+    # like, so here it is not a symptom but the end of the run, and there is no cheaper
+    # signal: `guild_no_wins` may never appear at all, because after 09:00 VN the counter
+    # stops moving instead of blocking. Two minutes is about three exhausted ticks past
+    # the point of doubt, and short enough not to sit there.
+    "stall_timeout_ms": 120000,
     "background": True,
     "target_window": "Onmyoji",
     "target_class": "Win32Window",
@@ -318,10 +422,17 @@ guild = {
         ]
         + only_on_list("onmyoji_realmraid_guild_progress.png", try_cells(
             GUILD_MEMBERS,
+            budget_ms=PANEL_BUDGET_GUILD_MS,
             # No Refresh here: every visible member is done. Say nothing and let the
             # next tick look again — a member's guardians are reset by other players'
-            # progress, and the stall guard stops a run that stays blind.
-            exhausted=[wait(1200)],
+            # progress, so one exhausted tick is not proof the run is over, which is why
+            # this ends on the stall guard's clock rather than immediately.
+            #
+            # And nothing to wait for: the 1200 ms that used to sit here settled nothing
+            # (there is no panel, no transition — the tick simply found nothing) while
+            # being paid on exactly the ticks that feel slowest. It was 1.2 s of the 6.6 s
+            # a fully-raided list spent blocking.
+            exhausted=[],
             # The guild progress banner is on the list screen and nowhere else.
             post_attack=after_attack("onmyoji_realmraid_guild_progress.png"),
         ))

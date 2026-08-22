@@ -9,10 +9,11 @@ Output goes to `.probe/` at the repo root (git-ignored).
 | Tool | What it is for |
 |---|---|
 | `import_check.py` | Import every `engine`/`gui` module and fail if any can't. The GUI has no test coverage, so this is what catches a stale import or syntax error there. Runs in CI. |
-| `game_probe.py` | Look at a target window, measure a button, crop it into a template, click something, watch a sequence. The capture→crop→verify loop for authoring a pack. |
+| `game_probe.py` | Look at a target window, measure a button, crop it into a template, click something, watch a sequence, **time how long a click takes to open a panel** (`settle`). The capture→crop→verify loop for authoring a pack. |
 | `match_report.py` | Score every captured template against the window that is up right now. Answers "why doesn't my template match?". |
 | `ui_probe.py` | Show one of the app's own windows and capture it, to check the UI renders. |
 | `build_pack.py` | Assemble a pack's `.wmbpack` from `packs/<name>/` for people to download. `release.yml` runs it. |
+| `cycle_timeline.py` | Watch several markers at once and print a timeline of phase boundaries. One battle answers every settle in a chain. |
 | `dryrun_macro.py` | Run a macro against a *saved frame* and print exactly what it would click. Real input is made impossible, not merely unused. |
 
 ## Quick start
@@ -31,7 +32,18 @@ python tools/ui_probe.py app editor wizard
 python tools/build_pack.py onmyoji                              # -> .probe/Onmyoji.wmbpack
 python tools/build_pack.py onmyoji --templates templates        # from a capture session
 python tools/dryrun_macro.py .probe/frame.png packs/onmyoji/souls-sougenbi-foolery.macro.json
+python tools/game_probe.py --title Onmyoji settle 291 203 onmyoji_realmraid_attack.png
+python tools/cycle_timeline.py --position 1 --seconds 60 onmyoji_realmraid_refresh.png onmyoji_reward_confirm.png:0.70
 ```
+
+`cycle_timeline.py` takes a threshold **per template** (`name:0.70`), and that is not tidiness. Watching the raid list marker at 0.70 — the number the pack uses for the *tap line* — reported the list as back for one sample, on a screen that was not the list at all. Unrelated content on this game sits near 0.70, which is exactly why `_clamp_score` stopped remapping scores.
+
+`settle` is the measurement behind every settle constant in a pack, and it exists
+because guessing one has already cost real time in both directions. It posts one click,
+samples every 50 ms, and prints when the template first crossed its threshold — or
+reports **never**, which is a real answer: that is what a defeated cell looks like, and
+it means the whole budget was spent finding nothing. Run it several times; a timeout has
+to cover the slow end, and one sample is an anecdote.
 
 `dryrun_macro.py` answers "on *this* screen, what does the macro press?" without the game
 running. Cross one frame against every macro in a pack and you learn whether two of them

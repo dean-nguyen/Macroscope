@@ -141,6 +141,29 @@ Image-based actions (`find_and_click`, `image_wait`, `image_check`, `find_all_an
   minute, which is worse than converging a few seconds later. Measured with the adaptive
   floor: one search per tick, the visible template found after 5 ticks, every later tick
   back to 0.36 s.
+- **A discovered scale is written to disk, and that is not an optimisation.** Held in
+  memory only, every launch rediscovered everything — and because the ration hands out
+  one search at a time, that cost becomes a *delay* and then a *wrong answer*. Measured
+  on a live 1810x1020 client, cold: the first template asked for spent **4039 ms** on a
+  search and failed (it was not on screen, and **a failed search caches nothing**), so
+  the remaining seven got only the cheap path, ~300 ms each, and were refused a slot.
+  One of them was `reward_confirm` with "Tap to continue" plainly visible — reported
+  **absent**, then scored **0.951** the moment discovery was allowed. That is the "why is
+  the wait after a win so long" complaint, and it is not the settles.
+  `engine/paths.data_root()/.scale_cache.json` holds `(template, window w, h) -> scale`.
+  Nothing validates it: a stale entry fails the cheap path and discovery runs exactly as
+  before, so a wrong guess costs one comparison. `set_persistence(False)` turns it off,
+  and `tests/conftest.py` does that for the whole suite — otherwise a test would behave
+  differently on a machine where the app had already run.
+- **The scales are per template, not per window.** Measured on the same client:
+  `reward_confirm` matched at **0.6388** while the pack's reference is 1236x696, i.e. it
+  was captured on a *larger* window than the others. A pack accumulates templates from
+  different sessions at different sizes, which is why `_window_scale` is only ever a
+  *second* guess and must never gate discovery.
+- **Persistence cannot help a template that is never on screen when it is asked for.**
+  `onmyoji_defeat.png` costs 4-6 s of searching per session and learns nothing, because a
+  defeat screen is not up at the moment the guard runs. Only capturing it at the size you
+  play at removes that.
 - **`unrationed_discovery()` is for the template report only.** Scoring a whole
   templates directory in one pass is exactly the batch the floor exists to slow down,
   and a report that says "no match" because the previous template spent the budget is
