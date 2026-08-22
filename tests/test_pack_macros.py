@@ -256,3 +256,71 @@ def test_a_panel_already_open_is_attacked_before_any_cell_is_clicked():
         assert first["template"].endswith("onmyoji_realmraid_attack.png")
         # And it must not click a cell to find that out.
         assert first.get("on_not_found"), "the cells belong in its on_not_found"
+
+
+def _after_attack_chain(macro):
+    """The branch that runs once an attack has taken: wait for the result, clear it."""
+    def walk(actions):
+        for a in actions:
+            if (a["type"] == "image_check" and a.get("on_not_found")
+                    and any(x["type"] == "image_wait" and "reward_confirm" in x["template"]
+                            for x in a["on_not_found"])):
+                return a["on_not_found"]
+            for key in ("on_found", "on_not_found"):
+                if a.get(key):
+                    found = walk(a[key])
+                    if found:
+                        return found
+        return None
+    chain = walk(macro["actions"])
+    assert chain, f"{macro['name']}: no post-attack chain found"
+    return chain
+
+
+def test_waiting_for_the_list_cannot_become_a_deadlock_again():
+    """This chain already had one, at 180 s, and its fix left a smaller one at 30 s.
+
+    The taps are a fixed number. If a win draws one more overlay than there are taps, the
+    list *cannot* appear — and the final wait then sits out its whole timeout for a screen
+    its own waiting is preventing, which is word for word the bug the 180 s version had.
+
+    Measured on two real wins: the list came back 3.85 s and 4.1 s after the last tap. So
+    8 s covers the good case twice over, and the bad case costs 8 s instead of 30. The
+    real backstop is the next tick — `preamble` taps the line again every iteration — so
+    an extra overlay should cost one loop delay, which is what the 30 s stopped from being
+    true.
+    """
+    for _name, macro in macros():
+        if "raid" not in macro["name"].lower():
+            continue
+        chain = _after_attack_chain(macro)
+        list_waits = [a for a in chain
+                      if a["type"] == "image_wait" and "reward_confirm" not in a["template"]]
+        assert list_waits, f"{macro['name']}: nothing waits for the list to come back"
+        for wait in list_waits:
+            assert wait["timeout_ms"] <= 8000, (
+                f"{macro['name']}: {wait['timeout_ms']} ms is long enough to feel like a "
+                f"hang when a third overlay appears")
+
+        # And the wait for the result itself must still outlast a battle: 14 s and 39 s
+        # measured in one sitting, so this one is deliberately generous.
+        result_waits = [a for a in chain
+                        if a["type"] == "image_wait" and "reward_confirm" in a["template"]]
+        assert all(a["timeout_ms"] >= 60000 for a in result_waits), result_waits
+
+
+def test_the_gap_between_taps_matches_what_the_game_draws():
+    """Measured on a live raid win: the second overlay was drawn 629 ms after the first
+    tap. 1500 ms spent about 870 ms of every won battle looking at a screen that had
+    already changed."""
+    for _name, macro in macros():
+        if "raid" not in macro["name"].lower():
+            continue
+        chain = _after_attack_chain(macro)
+        taps = [a for a in chain
+                if a["type"] == "find_and_click" and "reward_confirm" in a["template"]]
+        assert len(taps) == 2, f"{macro['name']}: expected two taps, got {len(taps)}"
+        first_gap = sum(x["ms"] for x in taps[0].get("on_found", [])
+                        if x["type"] == "wait")
+        assert 700 <= first_gap <= 1100, (
+            f"{macro['name']}: {first_gap} ms between taps, against 629 ms measured")

@@ -209,12 +209,29 @@ def after_attack(list_template):
              # Polled often enough that the granularity is not itself a delay. Each
              # poll costs ~110 ms of matching on a 1917x1080 window, so 750 ms is
              # about a seventh of the time.
+             # 300 rather than 750: a poll costs ~200 ms of matching, so the cycle is
+             # search + poll and 750 made the granularity ~950 ms of pure lateness in
+             # noticing a screen that was already up. The 120 s timeout stays — it has
+             # to outlast a battle, measured at 14 s and 39 s in one sitting.
              {"type": "image_wait", "template": f"templates/{tap}",
-              "threshold": TAP_THRESHOLD, "timeout_ms": 120000, "poll_ms": 750},
-             find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1500)]),
+              "threshold": TAP_THRESHOLD, "timeout_ms": 120000, "poll_ms": 300},
+             # 900, not 1500. Measured on a live raid win: the second overlay was drawn
+             # **629 ms** after the first tap, so 1500 spent about 870 ms staring at a
+             # screen that had already changed.
+             find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(900)]),
              find_click(tap, threshold=TAP_THRESHOLD, on_found=[wait(1000)]),
+             # 8 s, not 30. This is the same deadlock the 180 s version had, smaller:
+             # if there is a third overlay the taps are spent, the list *cannot* appear,
+             # and this waits out its whole timeout for a screen its own wait is
+             # preventing. Measured on two real wins, the list came back 3.85 s and 4.1 s
+             # after the last tap, so 8 s covers the good case twice over — and the bad
+             # case is now 8 s instead of 30.
+             #
+             # The real backstop is the next tick: `preamble` taps the line again every
+             # iteration, so an extra overlay costs one loop delay. That is what the
+             # docstring above always claimed and what the 30 s stopped from being true.
              {"type": "image_wait", "template": f"templates/{list_template}",
-              "threshold": 0.8, "timeout_ms": 30000, "poll_ms": 600},
+              "threshold": 0.8, "timeout_ms": 8000, "poll_ms": 300},
          ]},
     ]
 

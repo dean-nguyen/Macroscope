@@ -195,7 +195,7 @@ CLAUDE.md              engine behaviour, and the measurements behind it
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests/          # 409 tests
+python -m pytest tests/          # 411 tests
 python tools/import_check.py     # what CI also runs
 ```
 
